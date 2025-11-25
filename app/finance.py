@@ -225,4 +225,21 @@ def compute_indicators(df: pd.DataFrame) -> dict:
     # Add latest closing price for convenience
     indicators['Close'] = float(_get_last(df['Close']))
 
+    # Calculate simple returns (1-day and over the selected period)
+    try:
+        first_close = float(df['Close'].iloc[0])
+        last_close = float(_get_last(df['Close']))
+        if first_close != 0:
+            indicators['return_period_pct'] = float((last_close / first_close - 1.0) * 100.0)
+        else:
+            indicators['return_period_pct'] = 0.0
+
+        if len(df) >= 2:
+            indicators['return_1d_pct'] = float(df['Close'].pct_change().iloc[-1] * 100.0)
+        else:
+            indicators['return_1d_pct'] = 0.0
+    except Exception:
+        indicators['return_period_pct'] = 0.0
+        indicators['return_1d_pct'] = 0.0
+
     return indicators
