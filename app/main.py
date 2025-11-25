@@ -97,11 +97,18 @@ def generate_advice(decision: str, triggered: list, indicators: dict) -> str:
 st.markdown(
     """
     <style>
-    .header {font-family: 'Segoe UI', Roboto, sans-serif;}
-    .card {background:#f8f9fb; padding:12px; border-radius:8px;}
-    .decision-buy{background:#e6f4ea;padding:10px;border-radius:8px;color:#06632a}
-    .decision-sell{background:#fdecea;padding:10px;border-radius:8px;color:#8a1f11}
-    .decision-hold{background:#eef3ff;padding:10px;border-radius:8px;color:#1f3a93}
+    :root{--bg:#f4f6fb; --card:#ffffff; --muted:#6b7280; --accent:#1f77b4; --success:#0f9d58; --danger:#d9230f}
+    html, body {background:var(--bg)}
+    .header {font-family: Inter, 'Segoe UI', Roboto, sans-serif; font-weight:700; color:#0f1724}
+    .topbar{display:flex;gap:10px;align-items:center;margin-bottom:14px}
+    .card{background:var(--card); padding:14px; border-radius:10px; box-shadow:0 6px 18px rgba(12,18,30,0.06)}
+    .decision-buy{background:#e6f4ea;padding:10px;border-radius:8px;color:var(--success);font-weight:600}
+    .decision-sell{background:#fdecea;padding:10px;border-radius:8px;color:var(--danger);font-weight:600}
+    .decision-hold{background:#eef3ff;padding:10px;border-radius:8px;color:#1f3a93;font-weight:600}
+    .fund-table td{padding:8px 6px;border-bottom:1px dotted #e6e9ef}
+    .fund-table th{padding:8px 6px;text-align:left;color:var(--muted);font-weight:600}
+    .muted{color:var(--muted)}
+    .metric-label{color:var(--muted); font-size:12px}
     </style>
     """,
     unsafe_allow_html=True,
@@ -116,6 +123,12 @@ with st.sidebar:
     interval = st.selectbox('Interval', ['1m','2m','5m','15m','1d'], index=4)
     st.markdown('---')
     st.markdown('Entrez un nom d\'entreprise (ex: TotalEnergies) ou un ticker (ex: TTE.PA)')
+    # Persistent display toggles moved to sidebar so their state survives reruns
+    with st.expander('Affichages graphiques', expanded=True):
+        show_sma = st.checkbox('Afficher SMA20/SMA50', value=True, key='show_sma')
+        show_bb = st.checkbox('Afficher Bollinger Bands', value=True, key='show_bb')
+        show_volume = st.checkbox('Afficher Volume', value=True, key='show_volume')
+        show_returns = st.checkbox('Afficher Rendements cumulés', value=True, key='show_returns')
 
 # Instead of free text, provide a dropdown of the 5 French companies requested
 companies = [
@@ -128,7 +141,9 @@ companies = [
 
 choice = st.selectbox('Choisir une entreprise française', [c[0] for c in companies])
 symbol = dict(companies)[choice]
-st.info(f"Symbole sélectionné: {symbol}")
+
+# Top info row
+st.markdown(f"<div class='muted'>Symbole sélectionné: <b>{symbol}</b></div>", unsafe_allow_html=True)
 
 if st.button('Analyser'):
     with st.spinner('Analyse en cours — récupération des données et calcul des indicateurs...'):
@@ -354,6 +369,12 @@ if st.button('Analyser'):
         except Exception:
             df_plot['returns_cum'] = 0.0
 
+        # Use sidebar toggles (keys) to control overlays
+        show_sma = st.session_state.get('show_sma', True)
+        show_bb = st.session_state.get('show_bb', True)
+        show_volume = st.session_state.get('show_volume', True)
+        show_returns = st.session_state.get('show_returns', True)
+
         rows_heights = [0.7, 0.3]
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03,
                             row_heights=rows_heights, specs=[[{"secondary_y": False}], [{"secondary_y": False}]])
@@ -363,18 +384,21 @@ if st.button('Analyser'):
                                      open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'],
                                      name='OHLC', increasing_line_color='#0f9d58', decreasing_line_color='#d9230f'), row=1, col=1)
 
-        # Overlays: SMAs and Bollinger
-        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['SMA20'], mode='lines', name='SMA20', line={'color': '#1f77b4'}), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['SMA50'], mode='lines', name='SMA50', line={'color': '#ff7f0e'}), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['BBU'], mode='lines', name='BBU', line={'color': 'rgba(31,119,180,0.2)'}), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['BBL'], mode='lines', name='BBL', line={'color': 'rgba(31,119,180,0.2)'}), row=1, col=1)
+        # Overlays: SMAs and Bollinger (respect toggles)
+        if show_sma:
+            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['SMA20'], mode='lines', name='SMA20', line={'color': '#1f77b4'}), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['SMA50'], mode='lines', name='SMA50', line={'color': '#ff7f0e'}), row=1, col=1)
+        if show_bb:
+            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['BBU'], mode='lines', name='BBU', line={'color': 'rgba(31,119,180,0.2)'}), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['BBL'], mode='lines', name='BBL', line={'color': 'rgba(31,119,180,0.2)'}), row=1, col=1)
 
         # Volume as bars in lower subplot
-        if 'Volume' in df_plot.columns:
+        if show_volume and 'Volume' in df_plot.columns:
             fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['Volume'], name='Volume', marker_color='rgba(100,100,120,0.6)'), row=2, col=1)
 
         # Cumulative returns on lower subplot (line)
-        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['returns_cum'] * 100.0, mode='lines', name='Cumulative Return %', line={'color': '#444444'}), row=2, col=1)
+        if show_returns:
+            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['returns_cum'] * 100.0, mode='lines', name='Cumulative Return %', line={'color': '#444444'}), row=2, col=1)
 
         # Annotate Head & Shoulders if detected
         pos = indicators.get('hs_positions')
@@ -383,13 +407,13 @@ if st.button('Analyser'):
                 try:
                     xval = df_plot.index[int(idx)]
                     yval = float(df_plot['Close'].iloc[int(idx)])
-                    fig.add_vline(x=xval, line=dict(color='purple', width=1, dash='dot'))
+                    fig.add_vline(x=xval, line={'color': 'purple', 'width': 1, 'dash': 'dot'})
                     fig.add_annotation(x=xval, y=yval, text='H&S', showarrow=True, arrowhead=2, ax=0, ay=-30)
                 except Exception:
                     pass
 
         fig.update_layout(margin={'l': 20, 'r': 20, 't': 30, 'b': 20}, height=650)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     # Save analysis
     save_analysis(symbol, result['decision'], result['reason'], indicators, fundamentals)
