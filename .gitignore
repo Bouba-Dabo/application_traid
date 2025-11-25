@@ -1,0 +1,9 @@
+__pycache__/
+.venv/
+venv/
+*.pyc
+*.db
+/.vagrant/
+/.idea/
+dist/
+build/
