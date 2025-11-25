@@ -5,6 +5,7 @@ from app.db import init_db, save_analysis, get_history
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import json
 
 st.set_page_config(page_title='Traid - Analyseur', layout='wide')
@@ -96,11 +97,18 @@ def generate_advice(decision: str, triggered: list, indicators: dict) -> str:
 st.markdown(
     """
     <style>
-    .header {font-family: 'Segoe UI', Roboto, sans-serif;}
-    .card {background:#f8f9fb; padding:12px; border-radius:8px;}
-    .decision-buy{background:#e6f4ea;padding:10px;border-radius:8px;color:#06632a}
-    .decision-sell{background:#fdecea;padding:10px;border-radius:8px;color:#8a1f11}
+    :root{--card-bg:#ffffff;--muted:#6b7280;--accent:#1f77b4;--success:#0f9d58;--danger:#d9230f}
+    html, body {background:#f4f6fb}
+    .header {font-family: 'Inter', 'Segoe UI', Roboto, sans-serif; font-weight:700;}
+    .topbar {display:flex; gap:12px; align-items:center; margin-bottom:10px}
+    .card {background:var(--card-bg); padding:14px; border-radius:12px; box-shadow:0 6px 18px rgba(23,32,64,0.06);}
+    .metric {font-size:16px; color:#111827}
+    .muted {color:var(--muted)}
+    .decision-buy{background:#e6f4ea;padding:10px;border-radius:8px;color:var(--success)}
+    .decision-sell{background:#fdecea;padding:10px;border-radius:8px;color:var(--danger)}
     .decision-hold{background:#eef3ff;padding:10px;border-radius:8px;color:#1f3a93}
+    .fund-table td{padding:8px 6px;border-bottom:1px dotted #e6e9ef}
+    .fund-table th{padding:8px 6px;text-align:left;color:var(--muted)}
     </style>
     """,
     unsafe_allow_html=True,
@@ -111,10 +119,8 @@ st.markdown("<h1 class='header'>Traid — Analyse automatique (yfinance)</h1>", 
 with st.sidebar:
     st.header('Paramètres')
     refresh = st.slider('Fréquence de rafraîchissement (sec)', min_value=5, max_value=3600, value=60)
-    period = st.selectbox('Période historique', ['7d','30d','60d','180d','1y','2y'], index=2)
-    interval = st.selectbox('Interval', ['1m','2m','5m','15m','1d'], index=4)
     st.markdown('---')
-    st.markdown('Entrez un nom d\'entreprise (ex: TotalEnergies) ou un ticker (ex: TTE.PA)')
+    st.markdown('Paramètres avancés et info')
 
 # Instead of free text, provide a dropdown of the 5 French companies requested
 companies = [
@@ -127,9 +133,21 @@ companies = [
 
 choice = st.selectbox('Choisir une entreprise française', [c[0] for c in companies])
 symbol = dict(companies)[choice]
-st.info(f"Symbole sélectionné: {symbol}")
+# Top control bar (company + period/interval + analyze)
+col_top_1, col_top_2, col_top_3, col_top_4 = st.columns([2,1,1,1])
+with col_top_1:
+    st.markdown(f"<div class='card'><h3 class='header' style='margin:0'>{choice} <span class='muted' style='font-weight:400'>({symbol})</span></h3></div>", unsafe_allow_html=True)
+with col_top_2:
+    period = st.selectbox('Période', ['7d','30d','60d','180d','1y','2y'], index=2, key='period_top')
+with col_top_3:
+    interval = st.selectbox('Intervalle', ['1m','2m','5m','15m','1d'], index=4, key='interval_top')
+with col_top_4:
+    analyze_btn = st.button('Analyser', key='analyze_top')
 
-if st.button('Analyser'):
+    if 'analyze_top' not in locals():
+        analyze_btn = False
+
+if analyze_btn:
     try:
         if not symbol:
             st.error('Aucun symbole résolu à analyser')
@@ -292,6 +310,58 @@ if st.button('Analyser'):
                 st.write('Autres métriques')
                 st.table({k: (humanize_number(v) if isinstance(v, (int,float)) else v) for k,v in extra.items()})
 
+            # More readable labelled fundamentals (French labels)
+            st.markdown('---')
+            st.markdown('**Informations clés**')
+            label_map = [
+                ('Dividende par action', 'dividendRate'),
+                ('Rendement (div)', 'dividendYield'),
+                ('Bénéfice net par action (EPS)', 'earningsPerShare'),
+                ('PER (trailing)', 'trailingPE'),
+                ('PER (forward)', 'forwardPE'),
+                ('Price / Book', 'priceToBook'),
+                ('Book Value', 'bookValue'),
+                ('Market Cap', 'marketCap'),
+                ('Dette / Capitaux propres', 'debtToEquity'),
+                ('Bénéfice trimestriel (growth)', 'earningsQuarterlyGrowth'),
+                ('Beta', 'beta'),
+                ('52w Low', 'fiftyTwoWeekLow'),
+                ('52w High', 'fiftyTwoWeekHigh')
+            ]
+
+            # Build a compact two-column display
+            rows = []
+            for label, key in label_map:
+                val = fundamentals.get(key)
+                if val is None:
+                    display = 'N/A'
+                else:
+                    if isinstance(val, (int, float)):
+                        # format percentages for dividendYield/earningsQuarterlyGrowth
+                        if key in ('dividendYield', 'earningsQuarterlyGrowth'):
+                            try:
+                                display = f"{float(val)*100:.2f}%"
+                            except Exception:
+                                display = f"{val}"
+                        elif key in ('dividendRate', 'earningsPerShare', 'trailingEps', 'bookValue'):
+                            display = f"{float(val):.2f}"
+                        elif key == 'marketCap' or key in ('totalDebt','ebitda'):
+                            display = humanize_number(val)
+                        else:
+                            display = f"{float(val):.2f}"
+                    else:
+                        display = str(val)
+                rows.append({'Champ': label, 'Valeur': display})
+
+            # Render a compact HTML table with our CSS class for dotted separators
+            html_rows = ['<table class="fund-table" style="width:100%;border-collapse:collapse">']
+            html_rows.append('<thead><tr><th>Champ</th><th>Valeur</th></tr></thead>')
+            html_rows.append('<tbody>')
+            for r in rows:
+                html_rows.append(f"<tr><td style='width:50%;'>{r['Champ']}</td><td style='width:50%;font-weight:600'>{r['Valeur']}</td></tr>")
+            html_rows.append('</tbody></table>')
+            st.markdown(''.join(html_rows), unsafe_allow_html=True)
+
             # Keep raw JSON available for debugging
             with st.expander('Voir JSON brut'):
                 st.json(fundamentals)
@@ -300,14 +370,49 @@ if st.button('Analyser'):
 
     with col2:
         st.subheader(f'Graphique {symbol}')
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['Close'], mode='lines', name='Close', line={'color': '#111111'}))
-        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['SMA20'], mode='lines', name='SMA20', line={'color': '#1f77b4'}))
-        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['SMA50'], mode='lines', name='SMA50', line={'color': '#ff7f0e'}))
-        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['BBU'], mode='lines', name='BBU', line={'color': 'rgba(31,119,180,0.3)'}))
-        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['BBL'], mode='lines', name='BBL', line={'color': 'rgba(31,119,180,0.3)'}))
-        fig.update_layout(margin={'l': 20, 'r': 20, 't': 30, 'b': 20}, height=500)
-        st.plotly_chart(fig, use_container_width=True)
+        # Prepare cumulative returns and volume
+        df_plot = df_plot.copy()
+        try:
+            df_plot['returns_cum'] = (df_plot['Close'].pct_change().fillna(0) + 1.0).cumprod() - 1.0
+        except Exception:
+            df_plot['returns_cum'] = 0.0
+
+        rows_heights = [0.7, 0.3]
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03,
+                            row_heights=rows_heights, specs=[[{"secondary_y": False}], [{"secondary_y": False}]])
+
+        # Candlestick
+        fig.add_trace(go.Candlestick(x=df_plot.index,
+                                     open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'],
+                                     name='OHLC', increasing_line_color='#0f9d58', decreasing_line_color='#d9230f'), row=1, col=1)
+
+        # Overlays: SMAs and Bollinger
+        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['SMA20'], mode='lines', name='SMA20', line={'color': '#1f77b4'}), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['SMA50'], mode='lines', name='SMA50', line={'color': '#ff7f0e'}), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['BBU'], mode='lines', name='BBU', line={'color': 'rgba(31,119,180,0.2)'}), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['BBL'], mode='lines', name='BBL', line={'color': 'rgba(31,119,180,0.2)'}), row=1, col=1)
+
+        # Volume as bars in lower subplot
+        if 'Volume' in df_plot.columns:
+            fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['Volume'], name='Volume', marker_color='rgba(100,100,120,0.6)'), row=2, col=1)
+
+        # Cumulative returns on lower subplot (line)
+        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['returns_cum'] * 100.0, mode='lines', name='Cumulative Return %', line={'color': '#444444'}), row=2, col=1)
+
+        # Annotate Head & Shoulders if detected
+        pos = indicators.get('hs_positions')
+        if pos and isinstance(pos, (list, tuple)):
+            for idx in pos:
+                try:
+                    xval = df_plot.index[int(idx)]
+                    yval = float(df_plot['Close'].iloc[int(idx)])
+                    fig.add_vline(x=xval, line=dict(color='purple', width=1, dash='dot'))
+                    fig.add_annotation(x=xval, y=yval, text='H&S', showarrow=True, arrowhead=2, ax=0, ay=-30)
+                except Exception:
+                    pass
+
+        fig.update_layout(margin={'l': 20, 'r': 20, 't': 30, 'b': 20}, height=650)
+        st.plotly_chart(fig, width='stretch')
 
     # Save analysis
     save_analysis(symbol, result['decision'], result['reason'], indicators, fundamentals)

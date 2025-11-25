@@ -21,11 +21,20 @@ def fetch_fundamentals(symbol: str) -> dict:
     """Fetches a subset of fundamental data for a given symbol."""
     t = yf.Ticker(symbol)
     info = t.info if hasattr(t, 'info') else {}
+    # Extended list of common fields we want to surface in the UI
     fields = [
         'trailingPE', 'forwardPE', 'priceToBook', 'marketCap', 'debtToEquity',
-        'totalDebt', 'ebitda', 'earningsQuarterlyGrowth', 'dividendYield'
+        'totalDebt', 'ebitda', 'earningsQuarterlyGrowth', 'dividendYield', 'dividendRate',
+        'earningsPerShare', 'trailingEps', 'bookValue', 'pegRatio', 'beta',
+        'fiftyTwoWeekLow', 'fiftyTwoWeekHigh'
     ]
-    return {k: info.get(k) for k in fields}
+    out = {k: info.get(k) for k in fields}
+    # Some tickers use different keys - try common alternatives
+    if out.get('earningsPerShare') is None and info.get('epsTrailingTwelveMonths') is not None:
+        out['earningsPerShare'] = info.get('epsTrailingTwelveMonths')
+    if out.get('trailingEps') is None and info.get('trailingEps') is not None:
+        out['trailingEps'] = info.get('trailingEps')
+    return out
 
 def resolve_name_to_ticker(name: str, limit: int = 5) -> List[Dict[str, str]]:
     """Resolves a company name or free text to possible tickers using Yahoo Finance search API."""
