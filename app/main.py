@@ -97,18 +97,11 @@ def generate_advice(decision: str, triggered: list, indicators: dict) -> str:
 st.markdown(
     """
     <style>
-    :root{--card-bg:#ffffff;--muted:#6b7280;--accent:#1f77b4;--success:#0f9d58;--danger:#d9230f}
-    html, body {background:#f4f6fb}
-    .header {font-family: 'Inter', 'Segoe UI', Roboto, sans-serif; font-weight:700;}
-    .topbar {display:flex; gap:12px; align-items:center; margin-bottom:10px}
-    .card {background:var(--card-bg); padding:14px; border-radius:12px; box-shadow:0 6px 18px rgba(23,32,64,0.06);}
-    .metric {font-size:16px; color:#111827}
-    .muted {color:var(--muted)}
-    .decision-buy{background:#e6f4ea;padding:10px;border-radius:8px;color:var(--success)}
-    .decision-sell{background:#fdecea;padding:10px;border-radius:8px;color:var(--danger)}
+    .header {font-family: 'Segoe UI', Roboto, sans-serif;}
+    .card {background:#f8f9fb; padding:12px; border-radius:8px;}
+    .decision-buy{background:#e6f4ea;padding:10px;border-radius:8px;color:#06632a}
+    .decision-sell{background:#fdecea;padding:10px;border-radius:8px;color:#8a1f11}
     .decision-hold{background:#eef3ff;padding:10px;border-radius:8px;color:#1f3a93}
-    .fund-table td{padding:8px 6px;border-bottom:1px dotted #e6e9ef}
-    .fund-table th{padding:8px 6px;text-align:left;color:var(--muted)}
     </style>
     """,
     unsafe_allow_html=True,
@@ -119,8 +112,10 @@ st.markdown("<h1 class='header'>Traid — Analyse automatique (yfinance)</h1>", 
 with st.sidebar:
     st.header('Paramètres')
     refresh = st.slider('Fréquence de rafraîchissement (sec)', min_value=5, max_value=3600, value=60)
+    period = st.selectbox('Période historique', ['7d','30d','60d','180d','1y','2y'], index=2)
+    interval = st.selectbox('Interval', ['1m','2m','5m','15m','1d'], index=4)
     st.markdown('---')
-    st.markdown('Paramètres avancés et info')
+    st.markdown('Entrez un nom d\'entreprise (ex: TotalEnergies) ou un ticker (ex: TTE.PA)')
 
 # Instead of free text, provide a dropdown of the 5 French companies requested
 companies = [
@@ -133,33 +128,22 @@ companies = [
 
 choice = st.selectbox('Choisir une entreprise française', [c[0] for c in companies])
 symbol = dict(companies)[choice]
-# Top control bar (company + period/interval + analyze)
-col_top_1, col_top_2, col_top_3, col_top_4 = st.columns([2,1,1,1])
-with col_top_1:
-    st.markdown(f"<div class='card'><h3 class='header' style='margin:0'>{choice} <span class='muted' style='font-weight:400'>({symbol})</span></h3></div>", unsafe_allow_html=True)
-with col_top_2:
-    period = st.selectbox('Période', ['7d','30d','60d','180d','1y','2y'], index=2, key='period_top')
-with col_top_3:
-    interval = st.selectbox('Intervalle', ['1m','2m','5m','15m','1d'], index=4, key='interval_top')
-with col_top_4:
-    analyze_btn = st.button('Analyser', key='analyze_top')
+st.info(f"Symbole sélectionné: {symbol}")
 
-    if 'analyze_top' not in locals():
-        analyze_btn = False
-
-if analyze_btn:
-    try:
-        if not symbol:
-            st.error('Aucun symbole résolu à analyser')
+if st.button('Analyser'):
+    with st.spinner('Analyse en cours — récupération des données et calcul des indicateurs...'):
+        try:
+            if not symbol:
+                st.error('Aucun symbole résolu à analyser')
+                st.stop()
+            df = fetch_data(symbol, period=period, interval=interval)
+        except Exception as e:
+            st.error(f'Erreur récupération: {e}')
             st.stop()
-        df = fetch_data(symbol, period=period, interval=interval)
-    except Exception as e:
-        st.error(f'Erreur récupération: {e}')
-        st.stop()
 
-    # Prepare indicators and series
-    indicators = compute_indicators(df)
-    indicators['Close'] = float(df['Close'].iloc[-1])
+        # Prepare indicators and series
+        indicators = compute_indicators(df)
+        indicators['Close'] = float(df['Close'].iloc[-1])
 
     # Add series for plotting (moving averages, bollinger)
     df_plot = df.copy()
@@ -353,14 +337,7 @@ if analyze_btn:
                         display = str(val)
                 rows.append({'Champ': label, 'Valeur': display})
 
-            # Render a compact HTML table with our CSS class for dotted separators
-            html_rows = ['<table class="fund-table" style="width:100%;border-collapse:collapse">']
-            html_rows.append('<thead><tr><th>Champ</th><th>Valeur</th></tr></thead>')
-            html_rows.append('<tbody>')
-            for r in rows:
-                html_rows.append(f"<tr><td style='width:50%;'>{r['Champ']}</td><td style='width:50%;font-weight:600'>{r['Valeur']}</td></tr>")
-            html_rows.append('</tbody></table>')
-            st.markdown(''.join(html_rows), unsafe_allow_html=True)
+            st.table(rows)
 
             # Keep raw JSON available for debugging
             with st.expander('Voir JSON brut'):
@@ -412,7 +389,7 @@ if analyze_btn:
                     pass
 
         fig.update_layout(margin={'l': 20, 'r': 20, 't': 30, 'b': 20}, height=650)
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(fig, use_container_width=True)
 
     # Save analysis
     save_analysis(symbol, result['decision'], result['reason'], indicators, fundamentals)
