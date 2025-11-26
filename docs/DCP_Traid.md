@@ -256,12 +256,3 @@ En exécution, `DSLEngine` évalue `EXPR` dans le contexte `indicators` et décl
 - [ ] Valider flux RSS pour chaque source (fallback si aucun item).
 - [ ] Mettre en place logs et gestion d'erreurs centralisée.
 
----
-
-Pour aller plus loin : je peux
-- convertir ce Markdown en PDF,
-- générer un diagramme d'architecture (PNG/SVG) et l'insérer sous `docs/`,
-- ajouter un fichier `README.md` simplifié avec commande d'installation et run rapide.
-
-Indiquez-moi si vous voulez que j'ajoute des diagrammes (architecture, séquence) ou que j'engage les tests unitaires de base.  
-
