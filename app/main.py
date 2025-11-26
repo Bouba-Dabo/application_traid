@@ -394,13 +394,15 @@ if run_analysis:
         # News feed expander
         with st.expander('Flux d\'actualités', expanded=False):
             feeds = [
-                ("Reuters - World", "http://feeds.reuters.com/Reuters/worldNews"),
-                ("Reuters - Business", "http://feeds.reuters.com/reuters/businessNews"),
+                ("Reuters - France", "https://www.reuters.com/tools/rss"),
+                ("Les Echos - Une", "https://www.lesechos.fr/rss/une.xml"),
+                ("Le Monde - En continu", "https://www.lemonde.fr/rss/en_continu.xml"),
             ]
+            cached_fetch = st.cache_data(fetch_feed)
             for name, url in feeds:
                 st.markdown(f"**{name}**")
                 try:
-                    items = st.cache_data(fetch_feed)(url, max_items=5)
+                    items = cached_fetch(url, max_items=5)
                 except Exception:
                     items = []
                 if not items:
@@ -409,10 +411,17 @@ if run_analysis:
                     title = it.get('title', 'Sans titre')
                     link = it.get('link')
                     pub = it.get('published')
+                    # show title with optional date (muted)
                     if link:
-                        st.markdown(f"- [{title}]({link})")
+                        if pub:
+                            st.markdown(f"- [{title}]({link})  <span style='color:#6b7280;font-size:12px'>— {pub}</span>", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"- [{title}]({link})")
                     else:
-                        st.markdown(f"- {title}")
+                        if pub:
+                            st.markdown(f"- {title}  <span style='color:#6b7280;font-size:12px'>— {pub}</span>", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"- {title}")
 
     with col2:
         st.subheader(f'Graphique {symbol}')
