@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="460" viewBox="0 0 900 460">
+  <style>
+    .lifeline{stroke:#9CA3AF;stroke-width:1.2}
+    .actor{font-family:Inter, Arial, sans-serif;font-size:13px;fill:#0f1724}
+    .note{font-family:Inter, Arial, sans-serif;font-size:12px;fill:#374151}
+    .box{fill:#fff;stroke:#0f1724;stroke-width:1.2}
+    .arrow{stroke:#0f1724;stroke-width:1.2;marker-end:url(#arrow)}
+  </style>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#0f1724"/>
+    </marker>
+  </defs>
+
+  <!-- Actors -->
+  <text x="60" y="30" class="actor">Utilisateur</text>
+  <text x="260" y="30" class="actor">Streamlit UI</text>
+  <text x="510" y="30" class="actor">Modules (finance / dsl / news)</text>
+  <text x="760" y="30" class="actor">Externes / DB</text>
+
+  <!-- Lifelines -->
+  <line x1="80" y1="40" x2="80" y2="380" class="lifeline" stroke-dasharray="4 4"/>
+  <line x1="300" y1="40" x2="300" y2="380" class="lifeline" stroke-dasharray="4 4"/>
+  <line x1="560" y1="40" x2="560" y2="380" class="lifeline" stroke-dasharray="4 4"/>
+  <line x1="820" y1="40" x2="820" y2="380" class="lifeline" stroke-dasharray="4 4"/>
+
+  <!-- Messages -->
+  <path d="M100,80 L280,80" class="arrow" />
+  <text x="190" y="72" text-anchor="middle" class="note">Sélection entreprise / Analyser</text>
+
+  <path d="M320,120 L540,120" class="arrow" />
+  <text x="430" y="112" text-anchor="middle" class="note">fetch_data(symbol, period, interval)</text>
+
+  <path d="M540,160 L820,160" class="arrow" />
+  <text x="680" y="152" text-anchor="middle" class="note">Requête yfinance → historique OHLCV</text>
+
+  <path d="M820,200 L560,200" class="arrow" />
+  <text x="690" y="192" text-anchor="middle" class="note">Retour DataFrame</text>
+
+  <path d="M320,240 L540,240" class="arrow" />
+  <text x="430" y="232" text-anchor="middle" class="note">compute_indicators(df)</text>
+
+  <path d="M320,280 L540,280" class="arrow" />
+  <text x="430" y="272" text-anchor="middle" class="note">fetch_fundamentals(symbol)</text>
+
+  <path d="M320,320 L540,320" class="arrow" />
+  <text x="430" y="312" text-anchor="middle" class="note">engine.evaluate(indicators, fundamentals)</text>
+
+  <path d="M540,360 L820,360" class="arrow" />
+  <text x="680" y="352" text-anchor="middle" class="note">save_analysis(...) → SQLite</text>
+
+  <path d="M320,200 L540,200" class="arrow" />
+  <text x="430" y="192" text-anchor="middle" class="note">(optionnel) fetch_feed(RSS) pour actualités</text>
+
+  <!-- Boxes / highlights -->
+  <rect x="240" y="68" width="120" height="36" rx="6" class="box"/>
+  <text x="300" y="92" text-anchor="middle" class="note">Main orchestration</text>
+
+  <rect x="500" y="108" width="200" height="80" rx="8" class="box"/>
+  <text x="600" y="130" text-anchor="middle" class="note">Modules: fetch_data / compute_indicators</text>
+
+  <rect x="760" y="148" width="120" height="46" rx="6" class="box"/>
+  <text x="820" y="176" text-anchor="middle" class="note">yfinance / RSS</text>
+
+  <rect x="760" y="344" width="120" height="46" rx="6" class="box"/>
+  <text x="820" y="372" text-anchor="middle" class="note">SQLite</text>
+
+  <text x="450" y="420" text-anchor="middle" class="label">Séquence simplifiée : de la sélection utilisateur à la persistance &amp; affichage</text>
+</svg>
