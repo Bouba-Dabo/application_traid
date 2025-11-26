@@ -230,10 +230,10 @@ Ces images sont incluses ci-dessous pour une lecture facile.
 
 ### Diagramme d'architecture
 
-![alt text](image-1.png)
+![alt text](image-2.png)
 
 ### Diagramme de séquence (flux d'analyse)
-
+![alt text](image-3.png)
 
 ![](sequence.svg)
 ![alt text](image.png)
