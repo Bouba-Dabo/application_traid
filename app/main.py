@@ -1,5 +1,6 @@
 import streamlit as st
 from app.finance import fetch_data, compute_indicators, fetch_fundamentals, resolve_name_to_ticker
+from app.news import fetch_feed
 from app.dsl_engine import DSLEngine
 from app.db import init_db, save_analysis, get_history
 import pandas as pd
@@ -389,6 +390,29 @@ if run_analysis:
                 st.table(rows)
             else:
                 st.write('Aucune donnée fondamentale trouvée')
+
+        # News feed expander
+        with st.expander('Flux d\'actualités', expanded=False):
+            feeds = [
+                ("Reuters - World", "http://feeds.reuters.com/Reuters/worldNews"),
+                ("Reuters - Business", "http://feeds.reuters.com/reuters/businessNews"),
+            ]
+            for name, url in feeds:
+                st.markdown(f"**{name}**")
+                try:
+                    items = st.cache_data(fetch_feed)(url, max_items=5)
+                except Exception:
+                    items = []
+                if not items:
+                    st.markdown("- Aucune actualité disponible")
+                for it in items:
+                    title = it.get('title', 'Sans titre')
+                    link = it.get('link')
+                    pub = it.get('published')
+                    if link:
+                        st.markdown(f"- [{title}]({link})")
+                    else:
+                        st.markdown(f"- {title}")
 
     with col2:
         st.subheader(f'Graphique {symbol}')
