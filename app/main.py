@@ -1,6 +1,7 @@
 import streamlit as st
 from app.finance import fetch_data, compute_indicators, fetch_fundamentals, resolve_name_to_ticker
 from app.news import fetch_feed
+import urllib.parse
 from app.dsl_engine import DSLEngine
 from app.db import init_db, save_analysis, get_history
 import pandas as pd
@@ -391,26 +392,29 @@ if run_analysis:
             else:
                 st.write('Aucune donnée fondamentale trouvée')
 
-        # News feed expander
-        with st.expander('Flux d\'actualités', expanded=False):
-            feeds = [
-                ("Le Monde - En continu", "https://www.lemonde.fr/rss/en_continu.xml"),
-                ("Le Figaro - Actualités", "https://www.lefigaro.fr/rss/figaro_actualites.xml"),
-            ]
+        # News feed expander (adds debug info: RSS URL + item count)
+        with st.expander('Flux d\'actualités (par entreprise)', expanded=False):
+            # Show news for each of the 5 companies we work with
+            # companies list is defined earlier; we will use the displayed name (choice) mapping
             cached_fetch = st.cache_data(fetch_feed)
-            for name, url in feeds:
-                st.markdown(f"**{name}**")
+            for comp_name, comp_sym in companies:
+                st.markdown(f"**{comp_name}**")
+                # Use Google News RSS search for the company name (French locale)
+                q = urllib.parse.quote_plus(comp_name + " site:fr")
+                gurl = f"https://news.google.com/rss/search?q={q}&hl=fr&gl=FR&ceid=FR:fr"
                 try:
-                    items = cached_fetch(url, max_items=5)
-                except Exception:
+                    items = cached_fetch(gurl, max_items=5)
+                    # Debug: show the exact RSS URL and how many items returned
+                    st.markdown(f"<div style='font-size:12px;color:#6b7280;margin-bottom:6px'>URL: {gurl} — Articles récupérés: {len(items)}</div>", unsafe_allow_html=True)
+                except Exception as e:
                     items = []
+                    st.markdown(f"<div style='font-size:12px;color:#d23a2a;margin-bottom:6px'>Erreur chargement flux: {e}</div>", unsafe_allow_html=True)
                 if not items:
-                    st.markdown("- Aucune actualité disponible")
+                    st.markdown("- Aucune actualité disponible pour ce nom")
                 for it in items:
                     title = it.get('title', 'Sans titre')
                     link = it.get('link')
                     pub = it.get('published')
-                    # show title with optional date and a short cleaned summary
                     summary = it.get('summary', '')
                     if len(summary) > 200:
                         summary = summary[:200].rsplit(' ', 1)[0] + '...'
