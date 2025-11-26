@@ -230,14 +230,14 @@ Ces images sont incluses ci-dessous pour une lecture facile.
 
 ### Diagramme d'architecture
 
-![](architecture.svg)
+![alt text](image-1.png)
 
 ### Diagramme de séquence (flux d'analyse)
+
 
 ![](sequence.svg)
 ![alt text](image.png)
 
-## 17. Annexes : Exemples de règles DSL
 
 Exemple simple :
 ```
