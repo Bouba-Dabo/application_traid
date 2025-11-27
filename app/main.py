@@ -310,6 +310,16 @@ st.markdown(
         .header-sub{color:var(--accent);font-weight:700}
         select, input, textarea, button {background: #fff !important; color: #0f1724 !important; border:1px solid rgba(0,0,0,0.06) !important}
 
+        /* Make headings and prominent labels adopt the company accent color */
+        .block-container h1, .block-container h2, .block-container h3, .block-container h4,
+        .sidebar h1, .sidebar h2, .sidebar h3,
+        .header-sub, .app-tag, .metric-label, .name, .stMarkdown h1, .stMarkdown h2 {
+            color: var(--accent) !important;
+        }
+
+        /* Keep secondary/muted text readable */
+        .muted, .mini-slogan, .hero-desc, .card div[style*='color:var(--muted)'] { color: var(--muted) !important }
+
         /* Hero styles (polished) */
         .hero{background-position:center; background-size:cover; background-repeat:no-repeat; min-height:480px; display:flex; align-items:center; border-radius:14px; margin-bottom:32px; position:relative; overflow:hidden}
         .hero::before{ content: ''; position:absolute; inset:0; background: linear-gradient(90deg, rgba(4,9,30,0.55) 0%, rgba(10,20,40,0.28) 40%, rgba(255,255,255,0.02) 100%); mix-blend-mode: multiply }
@@ -499,12 +509,21 @@ if st.session_state.get('show_landing', True):
     st.stop()
 
 with st.sidebar:
-    st.header('Paramètres')
-    refresh = st.slider('Fréquence de rafraîchissement (sec)', min_value=5, max_value=3600, value=60)
-    period = st.selectbox('Période historique', ['7d','30d','60d','180d','1y','2y'], index=2)
-    interval = st.selectbox('Interval', ['1m','2m','5m','15m','1d'], index=4)
+    # Use explicit HTML labels so we can style them with the company's accent color
+    st.markdown("<div class='sidebar-header' style='font-size:20px;font-weight:700;color:var(--accent)'>Paramètres</div>", unsafe_allow_html=True)
+
+    st.markdown("<div class='sidebar-label' style='margin-top:8px;color:var(--accent);font-weight:600'>Fréquence de rafraîchissement (sec)</div>", unsafe_allow_html=True)
+    refresh = st.slider("", min_value=5, max_value=3600, value=60, key='refresh')
+
+    st.markdown("<div class='sidebar-label' style='margin-top:8px;color:var(--accent);font-weight:600'>Période historique</div>", unsafe_allow_html=True)
+    period = st.selectbox("", ['7d','30d','60d','180d','1y','2y'], index=2, key='period')
+
+    st.markdown("<div class='sidebar-label' style='margin-top:8px;color:var(--accent);font-weight:600'>Interval</div>", unsafe_allow_html=True)
+    interval = st.selectbox("", ['1m','2m','5m','15m','1d'], index=4, key='interval')
+
     st.markdown('---')
-    st.markdown('Entrez un nom d\'entreprise (ex: TotalEnergies) ou un ticker (ex: TTE.PA)')
+    st.markdown("<div class='sidebar-label' style='color:var(--accent);font-weight:600'>Entrez un nom d'entreprise (ex: TotalEnergies) ou un ticker (ex: TTE.PA)</div>", unsafe_allow_html=True)
+
     with st.expander('Affichages graphiques', expanded=True):
         show_sma = st.checkbox('Afficher SMA20/SMA50', value=True, key='show_sma')
         show_bb = st.checkbox('Afficher Bollinger Bands', value=True, key='show_bb')
