@@ -52,6 +52,8 @@ fetch_data = st.cache_data(fetch_data)
 fetch_fundamentals = st.cache_data(fetch_fundamentals)
 resolve_name_to_ticker = st.cache_data(resolve_name_to_ticker)
 get_history = st.cache_data(get_history)
+# Cache compute_indicators (it's relatively expensive and deterministic for a given DataFrame)
+compute_indicators = st.cache_data(compute_indicators)
 
 init_db()
 engine = get_engine()
@@ -589,15 +591,9 @@ st.markdown(
 
 if st.session_state.get('show_landing', True):
     # Try to load a local image from the app folder and inline it as base64 for the hero background
-    try:
-        import base64
-        img_path = os.path.join(os.path.dirname(__file__), "Analyse financière dans un monde futuriste.png")
-        with open(img_path, 'rb') as _f:
-            _b = _f.read()
-        _b64 = base64.b64encode(_b).decode('ascii')
-        bg_url = f"data:image/png;base64,{_b64}"
-    except Exception:
-        bg_url = "https://images.unsplash.com/photo-1559526324-593bc073d938?auto=format&fit=crop&w=1650&q=80"
+    # To keep startup fast, avoid reading/encoding large local images into memory.
+    # Prefer a remote background image (fallback) rather than embedding a base64 data URL.
+    bg_url = "https://images.unsplash.com/photo-1559526324-593bc073d938?auto=format&fit=crop&w=1650&q=80"
 
     import textwrap
 
@@ -901,7 +897,7 @@ if run_analysis:
 
         # Inject CSS variables so components use the company color where we referenced --accent
         try:
-            st.markdown(f"<style>:root{{--accent:{company_color};--accent-2:{company_accent2}}}</style>", unsafe_allow_html=True)
+            st.markdown(f"<style>:root {{ --accent: {company_color}; --accent-2: {company_accent2}; }}</style>", unsafe_allow_html=True)
         except Exception:
             pass
 
@@ -1196,7 +1192,12 @@ if run_analysis:
         fig.update_layout(paper_bgcolor='white', plot_bgcolor='white')
         fig.update_xaxes(showgrid=True, gridcolor='rgba(0,0,0,0.06)', zerolinecolor='rgba(0,0,0,0.04)', tickfont=dict(color='rgba(0,0,0,0.88)'))
         fig.update_yaxes(showgrid=True, gridcolor='rgba(0,0,0,0.06)', zerolinecolor='rgba(0,0,0,0.04)', tickfont=dict(color='rgba(0,0,0,0.88)'))
-        st.plotly_chart(fig, use_container_width=True)
+        # Use new API: width='stretch' replaces use_container_width=True (deprecated)
+        try:
+            st.plotly_chart(fig, width='stretch')
+        except Exception:
+            # Fallback for older Streamlit versions
+            st.plotly_chart(fig, use_container_width=True)
 
     save_analysis(symbol, result['decision'], result['reason'], indicators, fundamentals)
 
