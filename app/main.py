@@ -15,6 +15,11 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# Thresholds for RSI interpretation (can be tuned)
+RSI_OVERSOLD = 30.0
+RSI_CAUTION = 60.0
+RSI_OVERBOUGHT = 70.0
+
 st.set_page_config(page_title='Traid - Analyseur', layout='wide')
 
 @st.cache_resource
@@ -145,20 +150,121 @@ def generate_advice(decision: str, triggered: list, indicators: dict, fundamenta
     else:
         advice_parts.append("⚖️ **Il est conseillé de conserver la position pour le moment.**")
     advice_parts.append("\n**Arguments clés :**")
-    if not triggered:
-        advice_parts.append("\n- Aucun signal technique majeur n'a été déclenché par vos règles.")
-    else:
+    # Evaluate triggered rules and relate them to current RSI using thresholds
+    try:
+        rsi_val = None
+        try:
+            rsi_val = float(indicators.get('RSI', 0.0))
+        except Exception:
+            rsi_val = None
+
+        # Build messages from triggered rules but if RSI is neutral, prefer stronger indicators
+        triggered_msgs = []
         for rule in triggered:
-            comment = rule.get('comment', '').lower()
-            expr = rule.get('expr', '')
-            if 'oversold' in comment or 'rsi <' in expr.lower():
-                advice_parts.append(f"\n- Le RSI ({indicators.get('RSI', 0):.1f}) est en zone de survente, ce qui peut indiquer un rebond.")
-            elif 'overbought' in comment or 'rsi >' in expr.lower():
-                advice_parts.append(f"\n- Le RSI ({indicators.get('RSI', 0):.1f}) est en zone de surachat, signalant un risque de correction.")
-            elif 'sma20 > sma50' in expr.lower():
-                advice_parts.append("\n- La moyenne mobile à 20 jours est au-dessus de celle à 50 jours, confirmant une tendance haussière.")
+            comment = (rule.get('comment', '') or '').lower()
+            expr = (rule.get('expr', '') or '')
+            expr_l = expr.lower()
+            if 'rsi <' in expr_l or 'oversold' in comment:
+                triggered_msgs.append((0, f"Règle: `{expr}` — survente indiquée"))
+            elif 'rsi >' in expr_l or 'overbought' in comment:
+                triggered_msgs.append((0, f"Règle: `{expr}` — surachat indiqué"))
+            elif 'sma20 > sma50' in expr_l or ('sma20' in expr_l and 'sma50' in expr_l):
+                triggered_msgs.append((3, "La SMA20 est au-dessus de la SMA50 — tendance haussière."))
             else:
-                advice_parts.append(f"\n- Signal déclenché par la règle : `{expr}` ({comment}).")
+                triggered_msgs.append((1, f"Règle: `{expr}` ({comment})"))
+
+        # If no rules triggered, fallback note
+        if not triggered_msgs:
+            triggered_msgs.append((0, "Aucun signal technique majeur déclenché par vos règles."))
+
+        # Determine RSI value
+        rsi_val = None
+        try:
+            rsi_val = float(indicators.get('RSI', 0.0))
+        except Exception:
+            rsi_val = None
+
+        neutral_rsi = (rsi_val is not None and (RSI_CAUTION <= rsi_val < RSI_OVERBOUGHT))
+
+        # If RSI is neutral, build supporting indicators list (MACD, ADX, SMA crossover, BB width, volume, fundamentals)
+        supporting = []
+        if neutral_rsi:
+            try:
+                macd = indicators.get('MACD')
+                macd_s = indicators.get('MACD_SIGNAL')
+                if macd is not None and macd_s is not None:
+                    diff = float(macd) - float(macd_s)
+                    if diff > 0 and float(macd) > 0:
+                        supporting.append(f"Momentum : MACD positive (diff = {diff:.3f}) — momentum haussier")
+                    elif diff < 0:
+                        supporting.append(f"Momentum : MACD négative (diff = {diff:.3f}) — momentum baissier")
+            except Exception:
+                pass
+            try:
+                adx = indicators.get('ADX')
+                if adx is not None and float(adx) >= 25:
+                    supporting.append(f"ADX = {float(adx):.1f} — tendance forte")
+            except Exception:
+                pass
+            try:
+                sma20 = indicators.get('SMA20')
+                sma50 = indicators.get('SMA50')
+                if sma20 is not None and sma50 is not None:
+                    if float(sma20) > float(sma50):
+                        supporting.append("SMA20 > SMA50 — tendance haussière confirmée par les moyennes mobiles")
+                    else:
+                        supporting.append("SMA20 < SMA50 — attention, tendance baissière")
+            except Exception:
+                pass
+            try:
+                bw = indicators.get('BB_WIDTH_PCT')
+                if bw is not None:
+                    if bw > 0.06:
+                        supporting.append("Bandes de Bollinger larges — volatilité élevée")
+                    elif bw < 0.03:
+                        supporting.append("Bandes de Bollinger étroites — faible volatilité / consolidation")
+            except Exception:
+                pass
+            try:
+                vol = indicators.get('Volume')
+                vol_avg = indicators.get('Volume_AVG')
+                if vol is not None and vol_avg is not None and float(vol) > 1.5 * float(vol_avg):
+                    supporting.append("Volume élevé récent — confirmation du mouvement")
+            except Exception:
+                pass
+            try:
+                r1d = indicators.get('return_1d_pct')
+                if r1d is not None and abs(float(r1d)) > 2.0:
+                    supporting.append(f"Rendement 1j = {float(r1d):.2f}% — mouvement significatif récent")
+            except Exception:
+                pass
+            # Fundamentals
+            try:
+                pe = (fundamentals.get('trailingPE') or fundamentals.get('forwardPE') or fundamentals.get('pe')) if fundamentals else None
+                if pe is not None:
+                    pef = float(pe)
+                    if pef <= 15:
+                        supporting.append(f"PER faible ({pef:.1f}) — valorisation intéressante")
+                    elif pef >= 30:
+                        supporting.append(f"PER élevé ({pef:.1f}) — prudence sur la valorisation")
+            except Exception:
+                pass
+
+        # Present arguments: prefer supporting indicators if RSI neutral
+        if neutral_rsi and supporting:
+            advice_parts.append("\n- Le RSI est en zone neutre — appuyons-nous sur d'autres indicateurs :")
+            for s in supporting:
+                advice_parts.append(f"\n- {s}")
+            # still show top triggered rules afterwards
+            advice_parts.append("\n- Règles déclenchées :")
+            for _, msg in sorted(triggered_msgs, key=lambda x: -x[0]):
+                advice_parts.append(f"\n- {msg}")
+        else:
+            # show triggered messages (and RSI comments included earlier)
+            for _, msg in sorted(triggered_msgs, key=lambda x: -x[0]):
+                advice_parts.append(f"\n- {msg}")
+    except Exception:
+        advice_parts.append("\n- Erreur lors de l'analyse des règles déclenchées.")
     # Contre-arguments / points de vigilance (indicateurs contraires)
     contra = []
     try:
@@ -219,6 +325,47 @@ def generate_advice(decision: str, triggered: list, indicators: dict, fundamenta
             pass
 
     advice_parts.append("\n\n---\n*Ces informations sont générées automatiquement à titre indicatif et ne constituent pas un conseil en investissement.*")
+    # Add a short ranked list of most influential triggered rules (by absolute score)
+    try:
+        if triggered:
+            sorted_tr = sorted(triggered, key=lambda x: abs(int(x.get('score', 0))), reverse=True)
+            advice_parts.append("\n**Paramètres les plus influents :**")
+            for t in sorted_tr[:5]:
+                sc = int(t.get('score', 0))
+                expr = t.get('expr', '')
+                comment = t.get('comment', '')
+                sign = '+' if sc >= 0 else ''
+                advice_parts.append(f"\n- {sign}{sc}: `{expr}` {f'— {comment}' if comment else ''}")
+        else:
+            # Even if no rules triggered, show key raw indicators that may still matter
+            key_params = []
+            try:
+                rsi_val = float(indicators.get('RSI', 0.0))
+                key_params.append(f"RSI = {rsi_val:.1f}")
+            except Exception:
+                pass
+            try:
+                macd = indicators.get('MACD')
+                macd_s = indicators.get('MACD_SIGNAL')
+                if macd is not None and macd_s is not None:
+                    diff = float(macd) - float(macd_s)
+                    key_params.append(f"MACD diff = {diff:.3f}")
+            except Exception:
+                pass
+            try:
+                sma20 = indicators.get('SMA20')
+                sma50 = indicators.get('SMA50')
+                if sma20 is not None and sma50 is not None:
+                    key_params.append(f"SMA20/SMA50 = {float(sma20):.2f}/{float(sma50):.2f}")
+            except Exception:
+                pass
+            if key_params:
+                advice_parts.append("\n**Paramètres clés :**")
+                for kp in key_params:
+                    advice_parts.append(f"\n- {kp}")
+    except Exception:
+        pass
+
     return "\n".join(advice_parts)
 
 # --- CSS: simple, high-contrast light theme for legibility ---
@@ -355,35 +502,6 @@ if run_analysis:
             st.markdown('</div>', unsafe_allow_html=True)
         except Exception:
             pass
-
-        try:
-            r1d = indicators.get('return_1d_pct', 0.0)
-            rp = indicators.get('return_period_pct', 0.0)
-            ret_html = f"""
-            <div class='card'>
-              <div style='display:flex;gap:18px'>
-                <div>
-                  <div class='metric-label'>Rendement 1j</div>
-                  <div style='font-weight:700'>{r1d:.2f}%</div>
-                </div>
-                <div>
-                  <div class='metric-label'>Rendement période</div>
-                  <div style='font-weight:700'>{rp:.2f}%</div>
-                </div>
-              </div>
-            </div>
-            """
-            st.markdown(ret_html, unsafe_allow_html=True)
-        except Exception:
-            pass
-
-        dec = result['decision']
-        if dec == 'BUY':
-            st.markdown("<div class='decision-buy'><b>RECOMMANDATION: ACHETER</b></div>", unsafe_allow_html=True)
-        elif dec == 'SELL':
-            st.markdown("<div class='decision-sell'><b>RECOMMANDATION: VENDRE</b></div>", unsafe_allow_html=True)
-        else:
-            st.markdown("<div class='decision-hold'><b>RECOMMANDATION: NE RIEN FAIRE</b></div>", unsafe_allow_html=True)
 
         advice = generate_advice(result['decision'], result['triggered'], indicators, fundamentals)
         with st.expander('Conseils et détails', expanded=False):
