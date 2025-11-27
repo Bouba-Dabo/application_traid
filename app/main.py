@@ -339,7 +339,7 @@ st.markdown(
         .stButton>button, .stButton button, .stButton>div>button, .stButton>button>div {
             border-radius:12px !important;
             padding:14px 22px !important;
-            background: linear-gradient(90deg,#0b3d91 0%,#1e90ff 100%) !important;
+            background: linear-gradient(90deg,var(--accent) 0%,var(--accent-2) 100%) !important;
             color:#fff !important;
             font-weight:700 !important;
             border:none !important;
@@ -522,7 +522,7 @@ companies = [
 # Per-company metadata: preferred color (hex) and optional logo URL.
 # We use a fallback avatar generator if no real logo URL is provided.
 COMPANY_META = {
-    "Hermès": {"color": "#0b4b6f", "logo_url": "https://logo.clearbit.com/hermes.com"},
+    "Hermès": {"color": "#D4AF37", "logo_url": "https://logo.clearbit.com/hermes.com"},
     "TotalEnergies": {"color": "#ff5a00", "logo_url": "https://logo.clearbit.com/totalenergies.com"},
     "Airbus": {"color": "#003366", "logo_url": "https://logo.clearbit.com/airbus.com"},
     "Sopra Steria": {"color": "#0066cc", "logo_url": "https://logo.clearbit.com/soprasteria.com"},
@@ -551,6 +551,17 @@ def _hex_lighter(hex_color: str, percent: float = 0.45) -> str:
 
 choice = st.selectbox('Choisir une entreprise française', [c[0] for c in companies])
 symbol = dict(companies)[choice]
+
+# Per-selection: compute company theme (color + accent) and inject CSS vars so the whole page adapts
+meta_sel = COMPANY_META.get(choice, {})
+company_color = meta_sel.get('color', '#3A8BFF')
+company_accent2 = _hex_lighter(company_color, 0.45)
+logo_url_default = meta_sel.get('logo_url') or ''
+try:
+    # set CSS variables to override the default theme defined earlier
+    st.markdown(f"<style>:root {{ --accent: {company_color}; --accent-2: {company_accent2}; }}</style>", unsafe_allow_html=True)
+except Exception:
+    pass
 
 st.markdown(f"<div class='muted'>Symbole sélectionné: <b>{symbol}</b></div>", unsafe_allow_html=True)
 
@@ -776,8 +787,15 @@ if run_analysis:
                                      name='OHLC', increasing_line_color='#0f9d58', decreasing_line_color='#d9230f'), row=1, col=1)
 
         if show_sma:
-            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['SMA20'], mode='lines', name='SMA20', line={'color': '#1f77b4'}), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['SMA50'], mode='lines', name='SMA50', line={'color': '#ff7f0e'}), row=1, col=1)
+            # Use the selected company color for SMA20 and a lighter accent for SMA50
+            try:
+                sma20_color = company_color
+                sma50_color = company_accent2
+            except Exception:
+                sma20_color = '#1f77b4'
+                sma50_color = '#ff7f0e'
+            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['SMA20'], mode='lines', name='SMA20', line={'color': sma20_color}), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['SMA50'], mode='lines', name='SMA50', line={'color': sma50_color}), row=1, col=1)
         if show_bb:
             fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['BBU'], mode='lines', name='BBU', line={'color': 'rgba(31,119,180,0.2)'}), row=1, col=1)
             fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['BBL'], mode='lines', name='BBL', line={'color': 'rgba(31,119,180,0.2)'}), row=1, col=1)
