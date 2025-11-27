@@ -317,6 +317,9 @@ st.markdown(
             color: var(--accent) !important;
         }
 
+        /* Color widget labels in the sidebar to follow the company accent */
+        .stSidebar label, .stSidebar .stMarkdown p { color: var(--accent) !important; font-weight:600 }
+
         /* Keep secondary/muted text readable */
         .muted, .mini-slogan, .hero-desc, .card div[style*='color:var(--muted)'] { color: var(--muted) !important }
 
@@ -509,20 +512,16 @@ if st.session_state.get('show_landing', True):
     st.stop()
 
 with st.sidebar:
-    # Use explicit HTML labels so we can style them with the company's accent color
+    # Header styled with the company accent
     st.markdown("<div class='sidebar-header' style='font-size:20px;font-weight:700;color:var(--accent)'>Paramètres</div>", unsafe_allow_html=True)
 
-    st.markdown("<div class='sidebar-label' style='margin-top:8px;color:var(--accent);font-weight:600'>Fréquence de rafraîchissement (sec)</div>", unsafe_allow_html=True)
-    refresh = st.slider("", min_value=5, max_value=3600, value=60, key='refresh')
-
-    st.markdown("<div class='sidebar-label' style='margin-top:8px;color:var(--accent);font-weight:600'>Période historique</div>", unsafe_allow_html=True)
-    period = st.selectbox("", ['7d','30d','60d','180d','1y','2y'], index=2, key='period')
-
-    st.markdown("<div class='sidebar-label' style='margin-top:8px;color:var(--accent);font-weight:600'>Interval</div>", unsafe_allow_html=True)
-    interval = st.selectbox("", ['1m','2m','5m','15m','1d'], index=4, key='interval')
+    # Use native widget labels (non-empty) so Streamlit doesn't warn; CSS will color the labels.
+    refresh = st.slider('Fréquence de rafraîchissement (sec)', min_value=5, max_value=3600, value=60, key='refresh')
+    period = st.selectbox('Période historique', ['7d','30d','60d','180d','1y','2y'], index=2, key='period')
+    interval = st.selectbox('Interval', ['1m','2m','5m','15m','1d'], index=4, key='interval')
 
     st.markdown('---')
-    st.markdown("<div class='sidebar-label' style='color:var(--accent);font-weight:600'>Entrez un nom d'entreprise (ex: TotalEnergies) ou un ticker (ex: TTE.PA)</div>", unsafe_allow_html=True)
+    st.markdown("<div style='color:var(--accent);font-weight:600'>Entrez un nom d'entreprise (ex: TotalEnergies) ou un ticker (ex: TTE.PA)</div>", unsafe_allow_html=True)
 
     with st.expander('Affichages graphiques', expanded=True):
         show_sma = st.checkbox('Afficher SMA20/SMA50', value=True, key='show_sma')
@@ -544,7 +543,7 @@ COMPANY_META = {
     "Hermès": {"color": "#D4AF37", "logo_url": "https://logo.clearbit.com/hermes.com"},
     "TotalEnergies": {"color": "#ff5a00", "logo_url": "https://logo.clearbit.com/totalenergies.com"},
     "Airbus": {"color": "#003366", "logo_url": "https://logo.clearbit.com/airbus.com"},
-    "Sopra Steria": {"color": "#0066cc", "logo_url": "https://logo.clearbit.com/soprasteria.com"},
+    "Sopra Steria": {"color": "#e4002b", "logo_url": "https://logo.clearbit.com/soprasteria.com"},
     "Dassault Systèmes": {"color": "#1f77b4", "logo_url": "https://logo.clearbit.com/3ds.com"},
 }
 
@@ -699,6 +698,7 @@ if run_analysis:
             pass
 
         advice = generate_advice(result['decision'], result['triggered'], indicators, fundamentals)
+        # Render the expander normally; widget labels are now native and colored via CSS.
         with st.expander('Conseils et détails', expanded=False):
             st.markdown(advice)
 
