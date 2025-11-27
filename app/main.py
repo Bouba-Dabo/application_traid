@@ -555,6 +555,33 @@ st.markdown(
             .features{flex-direction:column}
         }
 
+        /* Expander header styling: make the clickable bar adopt the company accent
+           Try multiple selectors to target different Streamlit versions / DOM structures */
+        .streamlit-expanderHeader, .st-expander > button, .stExpanderHeader, .stExpander > div > button, .st-expanderHeader,
+        /* details/summary used by many Streamlit releases */
+        details[role="group"] > summary, details[role="group"] > summary > div, details[role="group"] > summary > div > button,
+        /* fallback selectors */
+        div[data-testid="stExpander"] > button, button[data-testid="stExpander"] {
+            background: linear-gradient(90deg, var(--accent), var(--accent-2)) !important;
+            color: #fff !important;
+            border-radius: 10px !important;
+            padding: 8px 12px !important;
+            font-weight: 700 !important;
+            box-shadow: 0 8px 28px rgba(6,30,60,0.08) !important;
+            border: none !important;
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+        }
+        details[role="group"] > summary::marker { display:none }
+        details[role="group"] > summary { list-style: none; }
+        details[role="group"] > summary > div { width:100%; }
+        details[role="group"] > summary > div > button { background: transparent !important; color: inherit !important }
+        .streamlit-expanderHeader:hover, .st-expander > button:hover, details[role="group"] > summary:hover {
+            transform: translateY(-2px);
+            transition: all .12s ease;
+        }
+
         </style>
         """,
         unsafe_allow_html=True,
@@ -938,7 +965,10 @@ if run_analysis:
         advice = generate_advice(result['decision'], result['triggered'], indicators, fundamentals)
         # Render the expander normally; widget labels are now native and colored via CSS.
         with st.expander('Conseils et détails', expanded=False):
-            st.markdown(advice)
+            # Styled header inside the expander to adopt company color
+            st.markdown("<div style='font-weight:700;color:var(--accent);font-size:15px;margin-bottom:8px'>Conseils et détails</div>", unsafe_allow_html=True)
+            # advice contains small HTML snippets (coloured highlights). Allow HTML rendering.
+            st.markdown(advice, unsafe_allow_html=True)
 
         st.markdown("<div class='card'><div class='header-sub'>Signaux techniques</div>", unsafe_allow_html=True)
         adx = indicators.get('ADX')
@@ -963,7 +993,95 @@ if run_analysis:
         st.markdown('<div style="color:var(--muted);font-size:13px">' + ' · '.join(sigs) + '</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
+        # --- Données techniques: rendements, volatilité, indicateurs bruts ---
+        with st.expander('Données techniques (rendements, volatilité, indicateurs bruts)', expanded=False):
+            st.markdown("<div style='font-weight:700;color:var(--accent);font-size:15px;margin-bottom:8px'>Données techniques</div>", unsafe_allow_html=True)
+            try:
+                # Cumulative returns over the loaded period
+                returns_series = (df['Close'].pct_change().fillna(0) + 1.0).cumprod() - 1.0
+                cum_pct = float(returns_series.iloc[-1]) * 100.0 if len(returns_series) > 0 else 0.0
+                start_price = float(df['Close'].iloc[0]) if len(df) > 0 else price
+                period_return_pct = (price / start_price - 1.0) * 100.0 if start_price and len(df) > 1 else 0.0
+
+                # Approximate period length in days (if index is datetime)
+                try:
+                    days = (df.index[-1] - df.index[0]).days
+                except Exception:
+                    days = None
+
+                ann_return = None
+                if days and days > 0:
+                    try:
+                        ann_return = ((1.0 + cum_pct / 100.0) ** (365.0 / days) - 1.0) * 100.0
+                    except Exception:
+                        ann_return = None
+
+                # Annualized volatility (estimate)
+                try:
+                    daily_ret = df['Close'].pct_change().dropna()
+                    vol_annual = float(daily_ret.std()) * (252 ** 0.5) * 100.0
+                except Exception:
+                    vol_annual = None
+
+                avg_vol = float(df['Volume'].mean()) if 'Volume' in df.columns else None
+
+                rows = []
+                rows.append(('Prix actuel', f"{price:.2f} €"))
+                rows.append(('Variation', f"{change:+.2f} € ({pct:+.2f} % )"))
+                rows.append(('Rendement sur période', f"{period_return_pct:+.2f}%"))
+                rows.append(('Rendement cumulé', f"{cum_pct:+.2f}%"))
+                if ann_return is not None:
+                    rows.append(('Rendement annualisé (est.)', f"{ann_return:+.2f}%"))
+                if vol_annual is not None:
+                    rows.append(('Volatilité annualisée', f"{vol_annual:.2f}%"))
+                if avg_vol is not None:
+                    rows.append(('Volume moyen', f"{avg_vol:,.0f}"))
+
+                # Raw indicator values
+                for k in ('RSI', 'MACD', 'ADX', 'SMA20', 'SMA50', 'BB_WIDTH_PCT'):
+                    v = indicators.get(k)
+                    if v is None:
+                        continue
+                    if k == 'BB_WIDTH_PCT':
+                        try:
+                            rows.append(('Bollinger width', f"{float(v) * 100:.2f}%"))
+                        except Exception:
+                            rows.append(('Bollinger width', str(v)))
+                    elif k in ('SMA20', 'SMA50'):
+                        try:
+                            rows.append((k, f"{float(v):.2f}"))
+                        except Exception:
+                            rows.append((k, str(v)))
+                    elif k == 'MACD':
+                        try:
+                            rows.append(('MACD', f"{float(v):.3f}"))
+                        except Exception:
+                            rows.append(('MACD', str(v)))
+                    else:
+                        try:
+                            rows.append((k, f"{float(v):.2f}"))
+                        except Exception:
+                            rows.append((k, str(v)))
+
+                # Dividend yield if present in fundamentals
+                try:
+                    dy = fundamentals.get('dividendYield')
+                    if dy is not None:
+                        rows.append(('Rendement (div)', f"{float(dy) * 100:.2f}%"))
+                except Exception:
+                    pass
+
+                # Render a compact two-column table inside a card
+                html = "<div class='card'><table style='width:100%;border-collapse:collapse'>"
+                for label, val in rows:
+                    html += f"<tr><td style='padding:6px 8px;border-bottom:1px solid rgba(0,0,0,0.04);width:60%;font-weight:700;color:var(--accent)'>{label}</td><td style='padding:6px 8px;border-bottom:1px solid rgba(0,0,0,0.04);text-align:right'>{val}</td></tr>"
+                html += "</table></div>"
+                st.markdown(html, unsafe_allow_html=True)
+            except Exception as e:
+                st.write('Erreur calcul des données techniques :', e)
+
         with st.expander('Données fondamentales', expanded=False):
+            st.markdown("<div style='font-weight:700;color:var(--accent);font-size:15px;margin-bottom:8px'>Données fondamentales</div>", unsafe_allow_html=True)
             if fundamentals:
                 def humanize_number(x):
                     try:
