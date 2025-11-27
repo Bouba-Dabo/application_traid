@@ -129,7 +129,7 @@ def render_score_card(col, label: str, score: int):
     """
     col.markdown(html, unsafe_allow_html=True)
 
-def generate_advice(decision: str, triggered: list, indicators: dict) -> str:
+def generate_advice(decision: str, triggered: list, indicators: dict, fundamentals: dict | None = None) -> str:
     advice_parts = []
     if decision == 'BUY':
         advice_parts.append("📈 **Notre analyse suggère une opportunité d'achat.**")
@@ -152,6 +152,65 @@ def generate_advice(decision: str, triggered: list, indicators: dict) -> str:
                 advice_parts.append("\n- La moyenne mobile à 20 jours est au-dessus de celle à 50 jours, confirmant une tendance haussière.")
             else:
                 advice_parts.append(f"\n- Signal déclenché par la règle : `{expr}` ({comment}).")
+    # Contre-arguments / points de vigilance (indicateurs contraires)
+    contra = []
+    try:
+        rsi_val = float(indicators.get('RSI', 0.0))
+        if rsi_val >= 65:
+            contra.append(f"Le RSI est élevé ({rsi_val:.1f}), signe d'une zone potentielle de sur-achat à court terme.")
+    except Exception:
+        pass
+    try:
+        macd = indicators.get('MACD')
+        macd_s = indicators.get('MACD_SIGNAL')
+        if macd is not None and macd_s is not None and float(macd) < float(macd_s):
+            contra.append("Le momentum (MACD) est orienté à la baisse.")
+    except Exception:
+        pass
+    try:
+        sma20 = indicators.get('SMA20')
+        sma50 = indicators.get('SMA50')
+        if sma20 is not None and sma50 is not None and float(sma20) < float(sma50):
+            contra.append("La SMA20 est en dessous de la SMA50, ce qui est un signal technique baissier." )
+    except Exception:
+        pass
+    if contra:
+        advice_parts.append("\n**Points de vigilance :**")
+        for c in contra:
+            advice_parts.append(f"\n- {c}")
+
+    # Volatilité (Bandes de Bollinger width)
+    try:
+        bw = indicators.get('BB_WIDTH_PCT')
+        if bw is not None:
+            if bw > 0.06:
+                advice_parts.append("\n- La volatilité est élevée (Bandes de Bollinger larges). Attendez-vous à des mouvements de prix amples.")
+            elif bw < 0.03:
+                advice_parts.append("\n- La volatilité est faible (Bandes de Bollinger étroites) — phase de consolidation probable.")
+    except Exception:
+        pass
+
+    # Contexte fondamental
+    if fundamentals:
+        try:
+            pe = fundamentals.get('trailingPE') or fundamentals.get('forwardPE') or fundamentals.get('pe')
+            if pe is not None:
+                try:
+                    pef = float(pe)
+                    if decision == 'BUY' and pef > 0:
+                        if pef <= 15:
+                            advice_parts.append(f"\n**Contexte fondamental :** Le PER est de {pef:.1f}, ce qui peut indiquer une valorisation raisonnable et renforce le signal technique.")
+                        elif pef >= 30:
+                            advice_parts.append(f"\n**Contexte fondamental :** Le PER est élevé ({pef:.1f}), ce qui invite à la prudence malgré le signal technique.")
+                        else:
+                            advice_parts.append(f"\n**Contexte fondamental :** PER = {pef:.1f}. Aucune anomalie manifeste dans la valorisation.")
+                    elif decision == 'SELL' and pef > 0:
+                        advice_parts.append(f"\n**Contexte fondamental :** PER = {pef:.1f}. Considérez le contexte de valorisation dans votre décision.")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     advice_parts.append("\n\n---\n*Ces informations sont générées automatiquement à titre indicatif et ne constituent pas un conseil en investissement.*")
     return "\n".join(advice_parts)
 
@@ -226,6 +285,22 @@ if run_analysis:
     sd = df_plot['Close'].rolling(20).std()
     df_plot['BBU'] = ma + 2 * sd
     df_plot['BBL'] = ma - 2 * sd
+
+    # Expose a few derived values into indicators for advice generation
+    try:
+        indicators['SMA20'] = float(df_plot['SMA20'].iloc[-1])
+    except Exception:
+        indicators['SMA20'] = None
+    try:
+        indicators['SMA50'] = float(df_plot['SMA50'].iloc[-1])
+    except Exception:
+        indicators['SMA50'] = None
+    try:
+        latest_bbu = float(df_plot['BBU'].iloc[-1])
+        latest_bbl = float(df_plot['BBL'].iloc[-1])
+        indicators['BB_WIDTH_PCT'] = (latest_bbu - latest_bbl) / indicators.get('Close', 1.0)
+    except Exception:
+        indicators['BB_WIDTH_PCT'] = None
 
     fundamentals = fetch_fundamentals(symbol)
     result = engine.evaluate(indicators, fundamentals)
@@ -303,7 +378,7 @@ if run_analysis:
         else:
             st.markdown("<div class='decision-hold'><b>RECOMMANDATION: NE RIEN FAIRE</b></div>", unsafe_allow_html=True)
 
-        advice = generate_advice(result['decision'], result['triggered'], indicators)
+        advice = generate_advice(result['decision'], result['triggered'], indicators, fundamentals)
         with st.expander('Conseils et détails', expanded=False):
             st.markdown(advice)
 
