@@ -318,7 +318,8 @@ def generate_advice(decision: str, triggered: list, indicators: dict, fundamenta
     elif decision == 'SELL':
         advice_parts.append("📉 **Notre analyse suggère une opportunité de vente.**")
     else:
-        advice_parts.append("⚖️ **Il est conseillé de conserver la position pour le moment.**")
+        # Highlight the neutral recommendation using the company accent color
+        advice_parts.append("⚖️ <span style='color:var(--accent);font-weight:700'><strong>Il est conseillé de conserver la position pour le moment.</strong></span>")
     advice_parts.append("\n**Arguments clés :**")
     # Evaluate triggered rules and relate them to current RSI using thresholds
     try:
