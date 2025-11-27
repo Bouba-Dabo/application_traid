@@ -71,6 +71,8 @@ def _clamp_score(v: int) -> int:
 
 def compute_indicator_scores(indicators: dict) -> dict:
     out = {}
+
+    # MACD-based scoring
     try:
         macd = indicators.get('MACD')
         macd_s = indicators.get('MACD_SIGNAL')
@@ -91,6 +93,47 @@ def compute_indicator_scores(indicators: dict) -> dict:
     except Exception:
         out['MACD'] = 3
 
+    # RSI-based scoring (higher score when in oversold zone -> potential buy)
+    try:
+        rsi = indicators.get('RSI')
+        if rsi is None:
+            out['RSI'] = 3
+        else:
+            r = float(rsi)
+            if r <= RSI_OVERSOLD:
+                out['RSI'] = 5
+            elif r <= 40:
+                out['RSI'] = 4
+            elif r <= RSI_CAUTION:
+                out['RSI'] = 3
+            elif r <= RSI_OVERBOUGHT:
+                out['RSI'] = 2
+            else:
+                out['RSI'] = 1
+    except Exception:
+        out['RSI'] = 3
+
+    # ADX-based scoring (higher score for stronger trends)
+    try:
+        adx = indicators.get('ADX')
+        if adx is None:
+            out['ADX'] = 3
+        else:
+            a = float(adx)
+            if a >= 25:
+                out['ADX'] = 5
+            elif a >= 20:
+                out['ADX'] = 4
+            elif a >= 15:
+                out['ADX'] = 3
+            elif a >= 10:
+                out['ADX'] = 2
+            else:
+                out['ADX'] = 1
+    except Exception:
+        out['ADX'] = 3
+
+    # Trend classification
     try:
         trend = str(indicators.get('trend', 'Sideways'))
         if 'Up (strong)' in trend:
@@ -108,6 +151,7 @@ def compute_indicator_scores(indicators: dict) -> dict:
     except Exception:
         out['TREND'] = 3
 
+    # Head & Shoulders pattern
     try:
         if indicators.get('hs_found'):
             conf = float(indicators.get('hs_confidence', 0.0))
@@ -121,6 +165,81 @@ def compute_indicator_scores(indicators: dict) -> dict:
             out['HNS'] = 5
     except Exception:
         out['HNS'] = 5
+
+    # Stochastic (K/D) scoring: prefer low K (survente) or K > D crossover
+    try:
+        k = indicators.get('STOCH_K')
+        d = indicators.get('STOCH_D')
+        if k is None:
+            out['STOCH'] = 3
+        else:
+            ks = float(k)
+            if ks <= 20:
+                base = 5
+            elif ks <= 40:
+                base = 4
+            elif ks <= 60:
+                base = 3
+            elif ks <= 80:
+                base = 2
+            else:
+                base = 1
+            # small boost if momentum (K > D)
+            try:
+                if d is not None and float(k) > float(d):
+                    base = min(5, base + 1)
+            except Exception:
+                pass
+            out['STOCH'] = base
+    except Exception:
+        out['STOCH'] = 3
+
+    # Bollinger width scoring: narrow bands -> higher score (consolidation), wide -> low
+    try:
+        bw = indicators.get('BB_WIDTH_PCT')
+        if bw is None:
+            out['BB'] = 3
+        else:
+            bwf = float(bw)
+            if bwf < 0.03:
+                out['BB'] = 5
+            elif bwf < 0.06:
+                out['BB'] = 4
+            elif bwf < 0.09:
+                out['BB'] = 3
+            elif bwf < 0.12:
+                out['BB'] = 2
+            else:
+                out['BB'] = 1
+    except Exception:
+        out['BB'] = 3
+
+    # SMA crossover scoring: SMA20 relative to SMA50
+    try:
+        s20 = indicators.get('SMA20')
+        s50 = indicators.get('SMA50')
+        if s20 is None or s50 is None:
+            out['SMA'] = 3
+        else:
+            if float(s20) > float(s50):
+                out['SMA'] = 5
+            else:
+                out['SMA'] = 2
+    except Exception:
+        out['SMA'] = 3
+
+    # Candlestick pattern scoring
+    try:
+        if indicators.get('candlestick_bull_engulf') or indicators.get('candlestick_hammer'):
+            out['CANDLE'] = 5
+        elif indicators.get('candlestick_doji'):
+            out['CANDLE'] = 3
+        elif indicators.get('candlestick_bear_engulf'):
+            out['CANDLE'] = 1
+        else:
+            out['CANDLE'] = 3
+    except Exception:
+        out['CANDLE'] = 3
 
     return out
 
@@ -155,6 +274,29 @@ def _score_label(score: int) -> str:
         5: 'Excellent'
     }
     return labels.get(s, 'N/A')
+
+
+def compute_overall_score(scores: dict) -> int:
+    """Return an overall score 0..5 computed from numeric entries in `scores`.
+
+    We take the simple average of available numeric scores and round to nearest int,
+    then clamp to 0..5.
+    """
+    vals = []
+    for v in scores.values():
+        try:
+            vals.append(float(v))
+        except Exception:
+            continue
+    if not vals:
+        return 0
+    avg = sum(vals) / len(vals)
+    # Round to nearest integer and clamp
+    try:
+        iv = int(round(avg))
+    except Exception:
+        iv = int(avg)
+    return _clamp_score(iv)
 
 def render_score_card(col, label: str, score: int):
     color = _score_color(score)
@@ -763,13 +905,31 @@ if run_analysis:
 
         try:
             scores = compute_indicator_scores(indicators)
+            # compute combined overall score
+            overall = compute_overall_score(scores)
+            overall_color = _score_color(overall)
+            overall_label = _score_label(overall)
+
             st.markdown("<div class='card'><div class='header-sub'>Scores (0–5)</div>", unsafe_allow_html=True)
+            # Show a prominent overall score at the top
+            try:
+                st.markdown(f"<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:10px'>"
+                            f"<div style='font-weight:700;color:var(--accent)'>Score global</div>"
+                            f"<div style='background:{overall_color};color:#fff;padding:8px 14px;border-radius:16px;font-weight:800;font-size:16px'>{overall}/5 — {overall_label}</div>"
+                            f"</div>", unsafe_allow_html=True)
+            except Exception:
+                pass
+
             sc_l, sc_r = st.columns([1,1])
             render_score_card(sc_l, 'RSI', scores.get('RSI', 0))
             render_score_card(sc_l, 'MACD', scores.get('MACD', 0))
             render_score_card(sc_l, 'ADX', scores.get('ADX', 0))
+            render_score_card(sc_l, 'STOCH', scores.get('STOCH', 0))
+            render_score_card(sc_l, 'SMA', scores.get('SMA', 0))
             render_score_card(sc_r, 'Tendance', scores.get('TREND', 0))
             render_score_card(sc_r, 'H&S', scores.get('HNS', 0))
+            render_score_card(sc_r, 'BB', scores.get('BB', 0))
+            render_score_card(sc_r, 'Candles', scores.get('CANDLE', 0))
             st.markdown('</div>', unsafe_allow_html=True)
         except Exception:
             pass
