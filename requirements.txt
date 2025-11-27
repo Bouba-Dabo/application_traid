@@ -5,5 +5,4 @@ pandas_ta
 matplotlib
 plotly
 asteval
-
 feedparser
