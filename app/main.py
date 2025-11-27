@@ -335,8 +335,22 @@ st.markdown(
         .cta-button:hover{transform:translateY(-3px);transition:all .18s ease}
 
         /* Small visual tweaks for Streamlit default button below hero */
-        .stButton>button{border-radius:12px;padding:14px 22px;background:linear-gradient(90deg,#3A8BFF,#06B6D4);color:#fff;font-weight:700;border:none;box-shadow:0 10px 30px rgba(58,139,255,0.18)}
-        .stButton>button::after{content:' →';margin-left:8px}
+        /* Use several selectors and !important to override Streamlit's built-in styles */
+        .stButton>button, .stButton button, .stButton>div>button, .stButton>button>div {
+            border-radius:12px !important;
+            padding:14px 22px !important;
+            background: linear-gradient(90deg,#0b3d91 0%,#1e90ff 100%) !important;
+            color:#fff !important;
+            font-weight:700 !important;
+            border:none !important;
+            box-shadow:0 12px 34px rgba(14,90,255,0.20) !important;
+            transition:transform .12s ease, box-shadow .12s ease !important;
+        }
+        .stButton>button:hover, .stButton button:hover, .stButton>div>button:hover {
+            transform:translateY(-3px) !important;
+            box-shadow:0 18px 40px rgba(14,90,255,0.24) !important;
+        }
+        .stButton>button::after, .stButton button::after { content:' →'; margin-left:8px }
 
         /* Features */
         .features{display:flex;gap:12px;margin-top:14px}
