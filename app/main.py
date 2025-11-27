@@ -519,6 +519,36 @@ companies = [
     ("Dassault Systèmes", "DSY.PA"),
 ]
 
+# Per-company metadata: preferred color (hex) and optional logo URL.
+# We use a fallback avatar generator if no real logo URL is provided.
+COMPANY_META = {
+    "Hermès": {"color": "#0b4b6f", "logo_url": "https://logo.clearbit.com/hermes.com"},
+    "TotalEnergies": {"color": "#ff5a00", "logo_url": "https://logo.clearbit.com/totalenergies.com"},
+    "Airbus": {"color": "#003366", "logo_url": "https://logo.clearbit.com/airbus.com"},
+    "Sopra Steria": {"color": "#0066cc", "logo_url": "https://logo.clearbit.com/soprasteria.com"},
+    "Dassault Systèmes": {"color": "#1f77b4", "logo_url": "https://logo.clearbit.com/3ds.com"},
+}
+
+def _hex_lighter(hex_color: str, percent: float = 0.45) -> str:
+    """Return a lighter version of a hex color by blending with white.
+
+    percent: 0..1 where 0 returns original color, 1 returns white.
+    """
+    try:
+        h = hex_color.lstrip('#')
+        lv = len(h)
+        if lv == 3:
+            h = ''.join([c*2 for c in h])
+        r = int(h[0:2], 16)
+        g = int(h[2:4], 16)
+        b = int(h[4:6], 16)
+        r = int(r + (255 - r) * percent)
+        g = int(g + (255 - g) * percent)
+        b = int(b + (255 - b) * percent)
+        return f"#{r:02x}{g:02x}{b:02x}"
+    except Exception:
+        return hex_color
+
 choice = st.selectbox('Choisir une entreprise française', [c[0] for c in companies])
 symbol = dict(companies)[choice]
 
@@ -582,13 +612,36 @@ if run_analysis:
         prev = float(df['Close'].iloc[-2]) if len(df) >= 2 else price
         change = price - prev
         pct = (change / prev * 100.0) if prev != 0 else 0.0
+
+        # Per-company theming (logo + accent colors)
+        meta = COMPANY_META.get(choice, {})
+        company_color = meta.get('color', '#3A8BFF')
+        company_accent2 = _hex_lighter(company_color, 0.45)
+        # logo: prefer provided URL, else generate an avatar image with the company name
+        logo_url = meta.get('logo_url')
+        if not logo_url:
+            try:
+                logo_name = urllib.parse.quote(choice)
+                logo_url = f"https://ui-avatars.com/api/?name={logo_name}&background={company_color.lstrip('#')}&color=ffffff&size=128"
+            except Exception:
+                logo_url = ''
+
+        # Inject CSS variables so components use the company color where we referenced --accent
+        try:
+            st.markdown(f"<style>:root{{--accent:{company_color};--accent-2:{company_accent2}}}</style>", unsafe_allow_html=True)
+        except Exception:
+            pass
+
         price_html = f"""
         <div class='card'>
           <div style='display:flex;justify-content:space-between;align-items:center'>
-            <div>
-              <div class='header-sub'>{symbol}</div>
-              <div style='font-size:32px;font-weight:800'>{price:.2f} €</div>
-              <div style='color:#6b7280'>{change:+.2f} EUR ({pct:+.2f}%)</div>
+            <div style='display:flex;align-items:center;gap:12px'>
+              <img src='{logo_url}' alt='{choice} logo' style='width:56px;height:56px;border-radius:10px;object-fit:cover;box-shadow:0 6px 18px rgba(2,6,23,0.12)' />
+              <div>
+                <div class='header-sub' style='display:flex;gap:8px;align-items:center'><span>{symbol}</span></div>
+                <div style='font-size:32px;font-weight:800'>{price:.2f} €</div>
+                <div style='color:#6b7280'>{change:+.2f} EUR ({pct:+.2f}%)</div>
+              </div>
             </div>
             <div style='text-align:right'>
               <div class='metric-label'>RSI</div>
