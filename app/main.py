@@ -714,6 +714,40 @@ with st.sidebar:
         show_bb = st.checkbox('Afficher Bollinger Bands', value=True, key='show_bb')
         show_volume = st.checkbox('Afficher Volume', value=True, key='show_volume')
         show_returns = st.checkbox('Afficher Rendements cumulés', value=True, key='show_returns')
+    
+    # Refresh data button: clears caches for data/indicators/fundamentals/history then reruns
+    try:
+        if st.button('Rafraîchir les données', key='refresh_data'):
+            cleared = []
+            try:
+                fetch_data.clear()
+                cleared.append('fetch_data')
+            except Exception:
+                pass
+            try:
+                compute_indicators.clear()
+                cleared.append('compute_indicators')
+            except Exception:
+                pass
+            try:
+                fetch_fundamentals.clear()
+                cleared.append('fetch_fundamentals')
+            except Exception:
+                pass
+            try:
+                get_history.clear()
+                cleared.append('get_history')
+            except Exception:
+                pass
+            st.success(f"Caches vidés: {', '.join(cleared) if cleared else 'aucun' }")
+            try:
+                # Force a rerun so the UI re-fetches fresh data
+                st.experimental_rerun()
+            except Exception:
+                pass
+    except Exception:
+        # If button rendering fails for any Streamlit variant, ignore silently
+        pass
 
 companies = [
     ("Hermès", "RMS.PA"),
