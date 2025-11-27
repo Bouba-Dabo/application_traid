@@ -581,9 +581,11 @@ try:
 except Exception:
     pass
 
-st.markdown(f"<div class='muted'>Symbole sélectionné: <b>{symbol}</b></div>", unsafe_allow_html=True)
+st.markdown(f"<div class='sidebar-line' style='color:var(--accent);font-weight:600'>Symbole sélectionné: <b style='color:var(--accent)'>{symbol}</b></div>", unsafe_allow_html=True)
 
-auto_analyze = st.checkbox('Analyse automatique', value=True, help='Lancer automatiquement l\'analyse lors du chargement ou du changement de symbole')
+# Visible HTML label (styled) and an accessible hidden native label for the checkbox.
+st.markdown("<div style='margin-top:8px;color:var(--accent);font-weight:600'>Analyse automatique</div>", unsafe_allow_html=True)
+auto_analyze = st.checkbox('Analyse automatique', value=True, help='Lancer automatiquement l\'analyse lors du chargement ou du changement de symbole', key='auto_analyze', label_visibility='hidden')
 run_analysis = auto_analyze or st.button('Analyser')
 
 if not run_analysis:
