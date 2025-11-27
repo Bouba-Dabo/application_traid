@@ -567,8 +567,60 @@ def _hex_lighter(hex_color: str, percent: float = 0.45) -> str:
     except Exception:
         return hex_color
 
-choice = st.selectbox('Choisir une entreprise française', [c[0] for c in companies])
+# Determine selected company from query params or session state (we'll use a small HTML dropdown).
+try:
+    # New API: prefer stable `st.query_params` (returns a dict-like of query params)
+    params = st.query_params
+except Exception:
+    # Fallback for older Streamlit versions that still have the experimental API
+    try:
+        params = st.experimental_get_query_params()
+    except Exception:
+        params = {}
+available_names = [c[0] for c in companies]
+default_choice = available_names[0]
+candidate = None
+if 'company' in params:
+    try:
+        candidate = params.get('company', [default_choice])[0]
+    except Exception:
+        candidate = default_choice
+if candidate and candidate in available_names:
+    choice = candidate
+else:
+    # fall back to session state or default
+    choice = st.session_state.get('company_choice', default_choice)
+st.session_state['company_choice'] = choice
 symbol = dict(companies)[choice]
+
+# Render a small HTML dropdown (inside an iframe) so each option can be styled with its brand color.
+try:
+    dropdown_items = []
+    for cname, _ in companies:
+        cmeta = COMPANY_META.get(cname, {})
+        ccolor = cmeta.get('color', '#64748b')
+        # link will navigate the top window to set the query param and cause a rerun
+        dropdown_items.append(f"<a class='item' href='?company={urllib.parse.quote(cname)}' target='_top' style='display:block;padding:8px 12px;color:{ccolor};text-decoration:none;font-weight:700;border-radius:6px;margin-bottom:6px'>{cname}</a>")
+    items_html = '\n'.join(dropdown_items)
+    dropdown_html = f"""
+    <style>
+    .company-dropdown {{ font-family:inherit; }}
+    .company-main {{ display:inline-block;padding:10px 14px;border-radius:10px;border:1px solid rgba(0,0,0,0.06);cursor:pointer;background:linear-gradient(90deg,{COMPANY_META.get(choice,{{}}).get('color','#3A8BFF')}, { _hex_lighter(COMPANY_META.get(choice,{{}}).get('color','#3A8BFF'), 0.45) }); color:#fff;font-weight:700 }}
+    .company-list {{ margin-top:8px; }}
+    .company-list .item:hover {{ background: rgba(0,0,0,0.04); }}
+    </style>
+    <div class='company-dropdown'>
+      <div class='company-main'>{choice} ▾</div>
+      <div class='company-list'>
+        {items_html}
+      </div>
+    </div>
+    """
+    components.html(dropdown_html, height=120, scrolling=False)
+except Exception:
+    # fallback to native selectbox if components/html fails
+    choice = st.selectbox('Choisir une entreprise française', available_names)
+    st.session_state['company_choice'] = choice
 
 # Per-selection: compute company theme (color + accent) and inject CSS vars so the whole page adapts
 meta_sel = COMPANY_META.get(choice, {})
@@ -669,8 +721,11 @@ if run_analysis:
             <div style='display:flex;align-items:center;gap:12px'>
               <img src='{logo_url}' alt='{choice} logo' style='width:56px;height:56px;border-radius:10px;object-fit:cover;box-shadow:0 6px 18px rgba(2,6,23,0.12)' />
               <div>
-                <div class='header-sub' style='display:flex;gap:8px;align-items:center'><span>{symbol}</span></div>
-                <div style='font-size:32px;font-weight:800'>{price:.2f} €</div>
+                            <div style='display:flex;flex-direction:column'>
+                                <div class='header-sub' style='display:flex;gap:8px;align-items:center'><span>{symbol}</span></div>
+                                <div style='font-size:14px;font-weight:800;color:{company_color};margin-top:4px'>{choice}</div>
+                                <div style='font-size:32px;font-weight:800'>{price:.2f} €</div>
+                            </div>
                 <div style='color:#6b7280'>{change:+.2f} EUR ({pct:+.2f}%)</div>
               </div>
             </div>
