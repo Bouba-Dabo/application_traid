@@ -10,6 +10,8 @@ import streamlit as st
 import urllib.parse
 import pandas as pd
 # ruff: noqa: E501,E402
+import math
+import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit.components.v1 as components
@@ -1390,14 +1392,17 @@ if run_analysis:
         show_volume = st.session_state.get("show_volume", True)
         show_returns = st.session_state.get("show_returns", True)
 
-        rows_heights = [0.7, 0.3]
+        # Use three rows: price (+indicators) / volume / cumulative returns.
+        # This keeps volume and returns on separate y-scales so the returns
+        # line remains visible instead of being dwarfed by volume bars.
+        rows_heights = [0.6, 0.2, 0.2]
         fig = make_subplots(
-            rows=2,
+            rows=3,
             cols=1,
             shared_xaxes=True,
-            vertical_spacing=0.03,
+            vertical_spacing=0.04,
             row_heights=rows_heights,
-            specs=[[{"secondary_y": False}], [{"secondary_y": False}]],
+            specs=[[{"secondary_y": False}], [{"secondary_y": False}], [{"secondary_y": False}]],
         )
 
         fig.add_trace(
@@ -1481,6 +1486,8 @@ if run_analysis:
                 col=1,
             )
 
+        # Plot cumulative returns on their own subplot so the scale is
+        # independent of volume and easier to read.
         if show_returns:
             fig.add_trace(
                 go.Scatter(
@@ -1490,16 +1497,84 @@ if run_analysis:
                     name="Cumulative Return %",
                     line={"color": "#444444"},
                 ),
-                row=2,
+                row=3,
                 col=1,
             )
 
+        # Downsample long series for plotting performance. We aggregate OHLCV
+        # and keep the last-known indicator values per block. This is a simple
+        # decimation strategy that preserves key price extrema within each
+        # bucket while drastically reducing point count for the renderer.
+        @st.cache_data
+        def _downsample_ohlcv(df_in: pd.DataFrame, max_points: int = 4000) -> pd.DataFrame:
+            n = len(df_in)
+            if n <= max_points:
+                return df_in
+            ratio = math.ceil(n / max_points)
+            # group index per block
+            grp = np.arange(n) // ratio
+            agg = {}
+            # OHLCV
+            if "Open" in df_in.columns:
+                agg["Open"] = "first"
+            if "High" in df_in.columns:
+                agg["High"] = "max"
+            if "Low" in df_in.columns:
+                agg["Low"] = "min"
+            if "Close" in df_in.columns:
+                agg["Close"] = "last"
+            if "Volume" in df_in.columns:
+                agg["Volume"] = "sum"
+            # indicators / moving averages: keep last value in the block
+            for c in ("SMA20", "SMA50", "BBU", "BBL", "returns_cum"):
+                if c in df_in.columns:
+                    agg[c] = "last"
+
+            try:
+                df_grp = df_in.groupby(grp).agg(agg)
+                # set timestamp to the first timestamp of each block for clarity
+                timestamps = [df_in.index[i * ratio] for i in range(len(df_grp))]
+                df_grp.index = pd.to_datetime(timestamps)
+                return df_grp
+            except Exception:
+                # Fallback: if grouping fails for any reason, return original
+                return df_in
+
+        # Apply downsampling if the series is long
+        try:
+            MAX_PLOT_POINTS = 4000
+            df_plot_ds = _downsample_ohlcv(df_plot, max_points=MAX_PLOT_POINTS)
+        except Exception:
+            df_plot_ds = df_plot
+
+        # When we annotate H&S positions, map original indices to downsampled ones
         pos = indicators.get("hs_positions")
+        if pos and isinstance(pos, (list, tuple)):
+            try:
+                n_orig = len(df_plot)
+                n_ds = len(df_plot_ds)
+                if n_orig > 0 and n_ds > 0:
+                    ratio_map = math.ceil(n_orig / max(1, n_ds))
+                    pos_mapped = [int(int(idx) / ratio_map) for idx in pos]
+                else:
+                    pos_mapped = pos
+            except Exception:
+                pos_mapped = pos
+        else:
+            pos_mapped = pos
+
+        # Use downsampled DataFrame for plotting if available
+        try:
+            dp = df_plot_ds
+        except Exception:
+            dp = df_plot
+
+        pos = pos_mapped if "pos_mapped" in locals() else indicators.get("hs_positions")
         if pos and isinstance(pos, (list, tuple)):
             for idx in pos:
                 try:
-                    xval = df_plot.index[int(idx)]
-                    yval = float(df_plot["Close"].iloc[int(idx)])
+                    xval = dp.index[int(idx)]
+                    yval = float(dp["Close"].iloc[int(idx)])
                     fig.add_vline(
                         x=xval, line={"color": "purple", "width": 1, "dash": "dot"}
                     )
@@ -1515,26 +1590,87 @@ if run_analysis:
                 except Exception:
                     pass
 
-        fig.update_layout(margin={"l": 20, "r": 20, "t": 30, "b": 20}, height=650)
-        fig.update_layout(paper_bgcolor="white", plot_bgcolor="white")
+        # Layout & interactivity improvements:
+        fig.update_layout(
+            margin={"l": 20, "r": 20, "t": 30, "b": 20},
+            height=850,
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+
+        # Range slider + selector buttons (attach to bottom x-axis only)
+        # First, ensure no rangeslider on all xaxes
+        fig.update_xaxes(rangeslider_visible=False)
+        # Then enable rangeslider and rangeselector only on the bottom subplot (row=3)
         fig.update_xaxes(
+            row=3,
+            col=1,
+            rangeslider_visible=True,
+            rangeselector=dict(
+                buttons=[
+                    dict(count=1, label="1d", step="day", stepmode="backward"),
+                    dict(count=7, label="7d", step="day", stepmode="backward"),
+                    dict(count=1, label="1m", step="month", stepmode="backward"),
+                    dict(count=6, label="6m", step="month", stepmode="backward"),
+                    dict(step="all", label="All"),
+                ]
+            ),
             showgrid=True,
             gridcolor="rgba(0,0,0,0.06)",
             zerolinecolor="rgba(0,0,0,0.04)",
             tickfont=dict(color="rgba(0,0,0,0.88)"),
         )
+
         fig.update_yaxes(
             showgrid=True,
             gridcolor="rgba(0,0,0,0.06)",
             zerolinecolor="rgba(0,0,0,0.04)",
             tickfont=dict(color="rgba(0,0,0,0.88)"),
         )
+
+        # Axis titles and formatting per subplot — explicitly target each y-axis
+        try:
+            fig.update_yaxes(title_text="Price (EUR)", row=1, col=1)
+            # Format volume axis with SI suffixes (k, M) for readability
+            fig.update_yaxes(title_text="Volume", row=2, col=1, tickformat=",.0s")
+            fig.update_yaxes(title_text="Cumulative Return (%)", row=3, col=1)
+        except Exception:
+            pass
+
+        # Improve hover templates for clarity
+        for tr in fig.data:
+            try:
+                tname = (tr.name or "").lower()
+                if getattr(tr, "type", "") == "candlestick":
+                    tr.hovertemplate = "Date: %{x}<br>open: %{open:.2f}<br>high: %{high:.2f}<br>low: %{low:.2f}<br>close: %{close:.2f}<extra></extra>"
+                elif getattr(tr, "type", "") == "bar":
+                    tr.hovertemplate = "Date: %{x}<br>Volume: %{y:,}<extra></extra>"
+                elif "returns" in tname or "cumulative" in tname:
+                    tr.hovertemplate = "Date: %{x}<br>%{y:.2f}%<extra></extra>"
+                elif "sma" in tname or "bbu" in tname or "bbl" in tname:
+                    tr.hovertemplate = "Date: %{x}<br>" + (tr.name or "%{y}") + ": %{y:.2f}<extra></extra>"
+                else:
+                    # generic fallback for other scatter traces
+                    if getattr(tr, "type", "") == "scatter":
+                        tr.hovertemplate = "Date: %{x}<br>" + (tr.name or "%{y}") + ": %{y:.2f}<extra></extra>"
+            except Exception:
+                # Non-critical: skip if any trace doesn't accept hovertemplate
+                pass
+
+        # Plotly modebar config: ensure image export button is present
+        plotly_config = {
+            "toImageButtonOptions": {"format": "png", "filename": f"{symbol}_chart"},
+            "modeBarButtonsToAdd": ["toImage"],
+        }
+
         # Use new API: width='stretch' replaces use_container_width=True (deprecated)
         try:
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, width="stretch", config=plotly_config)
         except Exception:
             # Fallback for older Streamlit versions
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, config=plotly_config)
 
     save_analysis(
         symbol, result["decision"], result["reason"], indicators, fundamentals
