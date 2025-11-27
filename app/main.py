@@ -990,7 +990,42 @@ if run_analysis:
             if not symbol:
                 st.error("Aucun symbole résolu à analyser")
                 st.stop()
-            df = fetch_data(symbol, period=period, interval=interval)
+
+            # Attempt to fetch data. For intraday minute intervals (e.g. '1m'),
+            # Yahoo/YFinance often only provides recent data (typically ~7 days).
+            # If the initial fetch returns no data, retry with a shorter period
+            # and inform the user.
+            try:
+                df = fetch_data(symbol, period=period, interval=interval)
+            except Exception as e_raw:
+                # If the backend raised a descriptive error, keep it for later
+                df = None
+                fetch_err = e_raw
+
+            # If we received an empty DataFrame (or fetch raised), and the
+            # user requested a minute-based interval, retry with a shorter
+            # period that is compatible with intraday data.
+            if (df is None or (hasattr(df, 'empty') and df.empty)) and (
+                isinstance(interval, str) and interval.endswith("m")
+            ):
+                fallback_period = "7d"
+                try:
+                    st.info(
+                        f"Les données intrajournalières ('{interval}') peuvent être limitées dans le temps. Réessai avec période='{fallback_period}'..."
+                    )
+                    df = fetch_data(symbol, period=fallback_period, interval=interval)
+                except Exception as e2:
+                    # Nothing worked — present the best error message available
+                    err_msg = (
+                        str(e2) if e2 is not None else str(fetch_err)
+                    )
+                    st.error(f"Erreur récupération: {err_msg}")
+                    st.stop()
+
+            # Final check: if still empty, report and stop
+            if df is None or (hasattr(df, "empty") and df.empty):
+                st.error("Erreur récupération: Aucune donnée renvoyée pour ce symbole/intervalle.")
+                st.stop()
         except Exception as e:
             st.error(f"Erreur récupération: {e}")
             st.stop()
