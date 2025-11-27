@@ -20,15 +20,17 @@ def _parse_entry(e) -> Dict:
     # Try to build a normalized published datetime string (local time)
     pub = ""
     try:
-        if hasattr(e, 'published_parsed') and e.published_parsed:
-            dt = datetime.datetime(*e.published_parsed[:6], tzinfo=datetime.timezone.utc)
-            pub = dt.astimezone().strftime('%Y-%m-%d %H:%M')
+        if hasattr(e, "published_parsed") and e.published_parsed:
+            dt = datetime.datetime(
+                *e.published_parsed[:6], tzinfo=datetime.timezone.utc
+            )
+            pub = dt.astimezone().strftime("%Y-%m-%d %H:%M")
         else:
-            pub = e.get('published', '') or e.get('updated', '')
+            pub = e.get("published", "") or e.get("updated", "")
     except Exception:
-        pub = e.get('published', '') or e.get('updated', '')
+        pub = e.get("published", "") or e.get("updated", "")
 
-    summary = e.get('summary', '') or e.get('description', '') or ''
+    summary = e.get("summary", "") or e.get("description", "") or ""
     return {
         "title": _strip_html(e.get("title", "Sans titre")),
         "link": e.get("link", ""),
@@ -45,7 +47,7 @@ def fetch_feed(url: str, max_items: int = 6) -> List[Dict]:
     """
     parsed = feedparser.parse(url)
     items: List[Dict] = []
-    if getattr(parsed, 'bozo', False):
+    if getattr(parsed, "bozo", False):
         # parsing problem (invalid feed); return empty list
         return items
     for e in parsed.entries[:max_items]:

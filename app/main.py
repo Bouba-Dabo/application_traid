@@ -1,30 +1,37 @@
-import streamlit as st
 import os
 import sys
+
 # Ensure repository root is on sys.path so `import app.*` works in hosted environments
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from app.finance import fetch_data, compute_indicators, fetch_fundamentals, resolve_name_to_ticker
-from app.news import fetch_feed
+import streamlit as st
 import urllib.parse
-from app.dsl_engine import DSLEngine
-from app.db import init_db, save_analysis, get_history
 import pandas as pd
+# ruff: noqa: E501,E402
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit.components.v1 as components
+
+from app.finance import (
+    fetch_data,
+    compute_indicators,
+    fetch_fundamentals,
+    resolve_name_to_ticker,
+)
+from app.dsl_engine import DSLEngine
+from app.db import init_db, save_analysis, get_history
 
 # Thresholds for RSI interpretation (can be tuned)
 RSI_OVERSOLD = 30.0
 RSI_CAUTION = 60.0
 RSI_OVERBOUGHT = 70.0
 
-st.set_page_config(page_title='Traid - Analyseur', layout='wide')
+st.set_page_config(page_title="Traid - Analyseur", layout="wide")
 
 # Landing control: show a cover page before accessing the analysis
-if 'show_landing' not in st.session_state:
+if "show_landing" not in st.session_state:
     st.session_state.show_landing = True
 
 # Small sidebar control to force-show the landing page (useful during development)
@@ -33,6 +40,7 @@ try:
         st.session_state.show_landing = True
         try:
             from streamlit.runtime.scriptrunner.script_runner import RerunException
+
             raise RerunException()
         except Exception:
             try:
@@ -43,9 +51,11 @@ except Exception:
     # If sidebar isn't ready yet for some Streamlit builds, ignore silently
     pass
 
+
 @st.cache_resource
 def get_engine():
-    return DSLEngine('app/rules.dsl')
+    return DSLEngine("app/rules.dsl")
+
 
 # cache helpers
 fetch_data = st.cache_data(fetch_data)
@@ -57,6 +67,7 @@ compute_indicators = st.cache_data(compute_indicators)
 
 init_db()
 engine = get_engine()
+
 
 # --- Helpers for scoring & UI ---
 def _clamp_score(v: int) -> int:
@@ -76,104 +87,104 @@ def compute_indicator_scores(indicators: dict) -> dict:
 
     # MACD-based scoring
     try:
-        macd = indicators.get('MACD')
-        macd_s = indicators.get('MACD_SIGNAL')
+        macd = indicators.get("MACD")
+        macd_s = indicators.get("MACD_SIGNAL")
         if macd is None or macd_s is None:
-            out['MACD'] = 3
+            out["MACD"] = 3
         else:
             diff = float(macd) - float(macd_s)
             if diff > 0 and float(macd) > 0:
-                out['MACD'] = 5
+                out["MACD"] = 5
             elif diff > 0:
-                out['MACD'] = 4
+                out["MACD"] = 4
             elif abs(diff) < 1e-8:
-                out['MACD'] = 3
+                out["MACD"] = 3
             elif diff < 0 and float(macd) < 0:
-                out['MACD'] = 1
+                out["MACD"] = 1
             else:
-                out['MACD'] = 2
+                out["MACD"] = 2
     except Exception:
-        out['MACD'] = 3
+        out["MACD"] = 3
 
     # RSI-based scoring (higher score when in oversold zone -> potential buy)
     try:
-        rsi = indicators.get('RSI')
+        rsi = indicators.get("RSI")
         if rsi is None:
-            out['RSI'] = 3
+            out["RSI"] = 3
         else:
             r = float(rsi)
             if r <= RSI_OVERSOLD:
-                out['RSI'] = 5
+                out["RSI"] = 5
             elif r <= 40:
-                out['RSI'] = 4
+                out["RSI"] = 4
             elif r <= RSI_CAUTION:
-                out['RSI'] = 3
+                out["RSI"] = 3
             elif r <= RSI_OVERBOUGHT:
-                out['RSI'] = 2
+                out["RSI"] = 2
             else:
-                out['RSI'] = 1
+                out["RSI"] = 1
     except Exception:
-        out['RSI'] = 3
+        out["RSI"] = 3
 
     # ADX-based scoring (higher score for stronger trends)
     try:
-        adx = indicators.get('ADX')
+        adx = indicators.get("ADX")
         if adx is None:
-            out['ADX'] = 3
+            out["ADX"] = 3
         else:
             a = float(adx)
             if a >= 25:
-                out['ADX'] = 5
+                out["ADX"] = 5
             elif a >= 20:
-                out['ADX'] = 4
+                out["ADX"] = 4
             elif a >= 15:
-                out['ADX'] = 3
+                out["ADX"] = 3
             elif a >= 10:
-                out['ADX'] = 2
+                out["ADX"] = 2
             else:
-                out['ADX'] = 1
+                out["ADX"] = 1
     except Exception:
-        out['ADX'] = 3
+        out["ADX"] = 3
 
     # Trend classification
     try:
-        trend = str(indicators.get('trend', 'Sideways'))
-        if 'Up (strong)' in trend:
-            out['TREND'] = 5
-        elif 'Up' in trend:
-            out['TREND'] = 4
-        elif 'Sideways' in trend or 'Unknown' in trend:
-            out['TREND'] = 3
-        elif 'Down' in trend and 'strong' in trend:
-            out['TREND'] = 1
-        elif 'Down' in trend:
-            out['TREND'] = 2
+        trend = str(indicators.get("trend", "Sideways"))
+        if "Up (strong)" in trend:
+            out["TREND"] = 5
+        elif "Up" in trend:
+            out["TREND"] = 4
+        elif "Sideways" in trend or "Unknown" in trend:
+            out["TREND"] = 3
+        elif "Down" in trend and "strong" in trend:
+            out["TREND"] = 1
+        elif "Down" in trend:
+            out["TREND"] = 2
         else:
-            out['TREND'] = 3
+            out["TREND"] = 3
     except Exception:
-        out['TREND'] = 3
+        out["TREND"] = 3
 
     # Head & Shoulders pattern
     try:
-        if indicators.get('hs_found'):
-            conf = float(indicators.get('hs_confidence', 0.0))
+        if indicators.get("hs_found"):
+            conf = float(indicators.get("hs_confidence", 0.0))
             if conf >= 0.7:
-                out['HNS'] = 1
+                out["HNS"] = 1
             elif conf >= 0.4:
-                out['HNS'] = 2
+                out["HNS"] = 2
             else:
-                out['HNS'] = 3
+                out["HNS"] = 3
         else:
-            out['HNS'] = 5
+            out["HNS"] = 5
     except Exception:
-        out['HNS'] = 5
+        out["HNS"] = 5
 
     # Stochastic (K/D) scoring: prefer low K (survente) or K > D crossover
     try:
-        k = indicators.get('STOCH_K')
-        d = indicators.get('STOCH_D')
+        k = indicators.get("STOCH_K")
+        d = indicators.get("STOCH_D")
         if k is None:
-            out['STOCH'] = 3
+            out["STOCH"] = 3
         else:
             ks = float(k)
             if ks <= 20:
@@ -192,70 +203,73 @@ def compute_indicator_scores(indicators: dict) -> dict:
                     base = min(5, base + 1)
             except Exception:
                 pass
-            out['STOCH'] = base
+            out["STOCH"] = base
     except Exception:
-        out['STOCH'] = 3
+        out["STOCH"] = 3
 
     # Bollinger width scoring: narrow bands -> higher score (consolidation), wide -> low
     try:
-        bw = indicators.get('BB_WIDTH_PCT')
+        bw = indicators.get("BB_WIDTH_PCT")
         if bw is None:
-            out['BB'] = 3
+            out["BB"] = 3
         else:
             bwf = float(bw)
             if bwf < 0.03:
-                out['BB'] = 5
+                out["BB"] = 5
             elif bwf < 0.06:
-                out['BB'] = 4
+                out["BB"] = 4
             elif bwf < 0.09:
-                out['BB'] = 3
+                out["BB"] = 3
             elif bwf < 0.12:
-                out['BB'] = 2
+                out["BB"] = 2
             else:
-                out['BB'] = 1
+                out["BB"] = 1
     except Exception:
-        out['BB'] = 3
+        out["BB"] = 3
 
     # SMA crossover scoring: SMA20 relative to SMA50
     try:
-        s20 = indicators.get('SMA20')
-        s50 = indicators.get('SMA50')
+        s20 = indicators.get("SMA20")
+        s50 = indicators.get("SMA50")
         if s20 is None or s50 is None:
-            out['SMA'] = 3
+            out["SMA"] = 3
         else:
             if float(s20) > float(s50):
-                out['SMA'] = 5
+                out["SMA"] = 5
             else:
-                out['SMA'] = 2
+                out["SMA"] = 2
     except Exception:
-        out['SMA'] = 3
+        out["SMA"] = 3
 
     # Candlestick pattern scoring
     try:
-        if indicators.get('candlestick_bull_engulf') or indicators.get('candlestick_hammer'):
-            out['CANDLE'] = 5
-        elif indicators.get('candlestick_doji'):
-            out['CANDLE'] = 3
-        elif indicators.get('candlestick_bear_engulf'):
-            out['CANDLE'] = 1
+        if indicators.get("candlestick_bull_engulf") or indicators.get(
+            "candlestick_hammer"
+        ):
+            out["CANDLE"] = 5
+        elif indicators.get("candlestick_doji"):
+            out["CANDLE"] = 3
+        elif indicators.get("candlestick_bear_engulf"):
+            out["CANDLE"] = 1
         else:
-            out['CANDLE'] = 3
+            out["CANDLE"] = 3
     except Exception:
-        out['CANDLE'] = 3
+        out["CANDLE"] = 3
 
     return out
+
 
 def _score_color(score: int) -> str:
     s = _clamp_score(score)
     cmap = {
-        0: '#7f1d1d',
-        1: '#ef4444',
-        2: '#f59e0b',
-        3: '#fbbf24',
-        4: '#06b6d4',
-        5: '#10b981'
+        0: "#7f1d1d",
+        1: "#ef4444",
+        2: "#f59e0b",
+        3: "#fbbf24",
+        4: "#06b6d4",
+        5: "#10b981",
     }
-    return cmap.get(s, '#64748b')
+    return cmap.get(s, "#64748b")
 
 
 def _score_label(score: int) -> str:
@@ -268,14 +282,14 @@ def _score_label(score: int) -> str:
     except Exception:
         s = 0
     labels = {
-        0: 'N/A',
-        1: 'Très faible',
-        2: 'Faible',
-        3: 'Moyen',
-        4: 'Bon',
-        5: 'Excellent'
+        0: "N/A",
+        1: "Très faible",
+        2: "Faible",
+        3: "Moyen",
+        4: "Bon",
+        5: "Excellent",
     }
-    return labels.get(s, 'N/A')
+    return labels.get(s, "N/A")
 
 
 def compute_overall_score(scores: dict) -> int:
@@ -300,6 +314,7 @@ def compute_overall_score(scores: dict) -> int:
         iv = int(avg)
     return _clamp_score(iv)
 
+
 def render_score_card(col, label: str, score: int):
     color = _score_color(score)
     text = _score_label(score)
@@ -313,72 +328,99 @@ def render_score_card(col, label: str, score: int):
     """
     col.markdown(html, unsafe_allow_html=True)
 
-def generate_advice(decision: str, triggered: list, indicators: dict, fundamentals: dict | None = None) -> str:
+
+def generate_advice(
+    decision: str, triggered: list, indicators: dict, fundamentals: dict | None = None
+) -> str:
     advice_parts = []
-    if decision == 'BUY':
+    if decision == "BUY":
         advice_parts.append("📈 **Notre analyse suggère une opportunité d'achat.**")
-    elif decision == 'SELL':
+    elif decision == "SELL":
         advice_parts.append("📉 **Notre analyse suggère une opportunité de vente.**")
     else:
         # Highlight the neutral recommendation using the company accent color
-        advice_parts.append("⚖️ <span style='color:var(--accent);font-weight:700'><strong>Il est conseillé de conserver la position pour le moment.</strong></span>")
+        advice_parts.append(
+            "⚖️ <span style='color:var(--accent);font-weight:700'><strong>Il est conseillé de conserver la position pour le moment.</strong></span>"
+        )
     advice_parts.append("\n**Arguments clés :**")
     # Evaluate triggered rules and relate them to current RSI using thresholds
     try:
         rsi_val = None
         try:
-            rsi_val = float(indicators.get('RSI', 0.0))
+            rsi_val = float(indicators.get("RSI", 0.0))
         except Exception:
             rsi_val = None
 
         if not triggered:
-            advice_parts.append("\n- Aucun signal technique majeur n'a été déclenché par vos règles.")
+            advice_parts.append(
+                "\n- Aucun signal technique majeur n'a été déclenché par vos règles."
+            )
         else:
             for rule in triggered:
-                comment = (rule.get('comment', '') or '').lower()
-                expr = (rule.get('expr', '') or '')
+                comment = (rule.get("comment", "") or "").lower()
+                expr = rule.get("expr", "") or ""
                 expr_l = expr.lower()
                 # Handle RSI-related rules more precisely using thresholds
-                if 'rsi <' in expr_l or 'oversold' in comment:
+                if "rsi <" in expr_l or "oversold" in comment:
                     if rsi_val is not None and rsi_val <= RSI_OVERSOLD:
-                        advice_parts.append(f"\n- Le RSI ({rsi_val:.1f}) est en zone de survente (≤{RSI_OVERSOLD:.0f}), ce qui peut indiquer un rebond.")
+                        advice_parts.append(
+                            f"\n- Le RSI ({rsi_val:.1f}) est en zone de survente (≤{RSI_OVERSOLD:.0f}), ce qui peut indiquer un rebond."
+                        )
                     else:
-                        cur = f"{rsi_val:.1f}" if rsi_val is not None else 'N/A'
-                        advice_parts.append(f"\n- Règle déclenchée : `{expr}` — RSI actuel = {cur} (pas strictement en survente).")
-                elif 'rsi >' in expr_l or 'overbought' in comment:
+                        cur = f"{rsi_val:.1f}" if rsi_val is not None else "N/A"
+                        advice_parts.append(
+                            f"\n- Règle déclenchée : `{expr}` — RSI actuel = {cur} (pas strictement en survente)."
+                        )
+                elif "rsi >" in expr_l or "overbought" in comment:
                     if rsi_val is not None and rsi_val >= RSI_OVERBOUGHT:
-                        advice_parts.append(f"\n- Le RSI ({rsi_val:.1f}) est en zone de surachat (≥{RSI_OVERBOUGHT:.0f}), signalant un risque de correction.")
+                        advice_parts.append(
+                            f"\n- Le RSI ({rsi_val:.1f}) est en zone de surachat (≥{RSI_OVERBOUGHT:.0f}), signalant un risque de correction."
+                        )
                     elif rsi_val is not None and rsi_val >= RSI_CAUTION:
-                        advice_parts.append(f"\n- Le RSI ({rsi_val:.1f}) est modérément élevé ({RSI_CAUTION:.0f}–{RSI_OVERBOUGHT:.0f}) — prudence requise.")
+                        advice_parts.append(
+                            f"\n- Le RSI ({rsi_val:.1f}) est modérément élevé ({RSI_CAUTION:.0f}–{RSI_OVERBOUGHT:.0f}) — prudence requise."
+                        )
                     else:
-                        cur = f"{rsi_val:.1f}" if rsi_val is not None else 'N/A'
-                        advice_parts.append(f"\n- Règle déclenchée : `{expr}` — RSI actuel = {cur}.")
-                elif 'sma20 > sma50' in expr_l or ('sma20' in expr_l and 'sma50' in expr_l):
-                    advice_parts.append("\n- La moyenne mobile à 20 jours est au-dessus de celle à 50 jours, confirmant une tendance haussière.")
+                        cur = f"{rsi_val:.1f}" if rsi_val is not None else "N/A"
+                        advice_parts.append(
+                            f"\n- Règle déclenchée : `{expr}` — RSI actuel = {cur}."
+                        )
+                elif "sma20 > sma50" in expr_l or (
+                    "sma20" in expr_l and "sma50" in expr_l
+                ):
+                    advice_parts.append(
+                        "\n- La moyenne mobile à 20 jours est au-dessus de celle à 50 jours, confirmant une tendance haussière."
+                    )
                 else:
-                    advice_parts.append(f"\n- Signal déclenché par la règle : `{expr}` ({comment}).")
+                    advice_parts.append(
+                        f"\n- Signal déclenché par la règle : `{expr}` ({comment})."
+                    )
     except Exception:
         advice_parts.append("\n- Erreur lors de l'analyse des règles déclenchées.")
     # Contre-arguments / points de vigilance (indicateurs contraires)
     contra = []
     try:
-        rsi_val = float(indicators.get('RSI', 0.0))
+        rsi_val = float(indicators.get("RSI", 0.0))
         if rsi_val >= 65:
-            contra.append(f"Le RSI est élevé ({rsi_val:.1f}), signe d'une zone potentielle de sur-achat à court terme.")
+            contra.append(
+                f"Le RSI est élevé ({rsi_val:.1f}), signe d'une zone potentielle de sur-achat à court terme."
+            )
     except Exception:
         pass
     try:
-        macd = indicators.get('MACD')
-        macd_s = indicators.get('MACD_SIGNAL')
+        macd = indicators.get("MACD")
+        macd_s = indicators.get("MACD_SIGNAL")
         if macd is not None and macd_s is not None and float(macd) < float(macd_s):
             contra.append("Le momentum (MACD) est orienté à la baisse.")
     except Exception:
         pass
     try:
-        sma20 = indicators.get('SMA20')
-        sma50 = indicators.get('SMA50')
+        sma20 = indicators.get("SMA20")
+        sma50 = indicators.get("SMA50")
         if sma20 is not None and sma50 is not None and float(sma20) < float(sma50):
-            contra.append("La SMA20 est en dessous de la SMA50, ce qui est un signal technique baissier." )
+            contra.append(
+                "La SMA20 est en dessous de la SMA50, ce qui est un signal technique baissier."
+            )
     except Exception:
         pass
     if contra:
@@ -388,69 +430,93 @@ def generate_advice(decision: str, triggered: list, indicators: dict, fundamenta
 
     # Volatilité (Bandes de Bollinger width)
     try:
-        bw = indicators.get('BB_WIDTH_PCT')
+        bw = indicators.get("BB_WIDTH_PCT")
         if bw is not None:
             if bw > 0.06:
-                advice_parts.append("\n- La volatilité est élevée (Bandes de Bollinger larges). Attendez-vous à des mouvements de prix amples.")
+                advice_parts.append(
+                    "\n- La volatilité est élevée (Bandes de Bollinger larges). Attendez-vous à des mouvements de prix amples."
+                )
             elif bw < 0.03:
-                advice_parts.append("\n- La volatilité est faible (Bandes de Bollinger étroites) — phase de consolidation probable.")
+                advice_parts.append(
+                    "\n- La volatilité est faible (Bandes de Bollinger étroites) — phase de consolidation probable."
+                )
     except Exception:
         pass
 
     # Contexte fondamental
     if fundamentals:
         try:
-            pe = fundamentals.get('trailingPE') or fundamentals.get('forwardPE') or fundamentals.get('pe')
+            pe = (
+                fundamentals.get("trailingPE")
+                or fundamentals.get("forwardPE")
+                or fundamentals.get("pe")
+            )
             if pe is not None:
                 try:
                     pef = float(pe)
-                    if decision == 'BUY' and pef > 0:
+                    if decision == "BUY" and pef > 0:
                         if pef <= 15:
-                            advice_parts.append(f"\n**Contexte fondamental :** Le PER est de {pef:.1f}, ce qui peut indiquer une valorisation raisonnable et renforce le signal technique.")
+                            advice_parts.append(
+                                f"\n**Contexte fondamental :** Le PER est de {pef:.1f}, ce qui peut indiquer une valorisation raisonnable et renforce le signal technique."
+                            )
                         elif pef >= 30:
-                            advice_parts.append(f"\n**Contexte fondamental :** Le PER est élevé ({pef:.1f}), ce qui invite à la prudence malgré le signal technique.")
+                            advice_parts.append(
+                                f"\n**Contexte fondamental :** Le PER est élevé ({pef:.1f}), ce qui invite à la prudence malgré le signal technique."
+                            )
                         else:
-                            advice_parts.append(f"\n**Contexte fondamental :** PER = {pef:.1f}. Aucune anomalie manifeste dans la valorisation.")
-                    elif decision == 'SELL' and pef > 0:
-                        advice_parts.append(f"\n**Contexte fondamental :** PER = {pef:.1f}. Considérez le contexte de valorisation dans votre décision.")
+                            advice_parts.append(
+                                f"\n**Contexte fondamental :** PER = {pef:.1f}. Aucune anomalie manifeste dans la valorisation."
+                            )
+                    elif decision == "SELL" and pef > 0:
+                        advice_parts.append(
+                            f"\n**Contexte fondamental :** PER = {pef:.1f}. Considérez le contexte de valorisation dans votre décision."
+                        )
                 except Exception:
                     pass
         except Exception:
             pass
 
-    advice_parts.append("\n\n---\n*Ces informations sont générées automatiquement à titre indicatif et ne constituent pas un conseil en investissement.*")
+    advice_parts.append(
+        "\n\n---\n*Ces informations sont générées automatiquement à titre indicatif et ne constituent pas un conseil en investissement.*"
+    )
     # Add a short ranked list of most influential triggered rules (by absolute score)
     try:
         if triggered:
-            sorted_tr = sorted(triggered, key=lambda x: abs(int(x.get('score', 0))), reverse=True)
+            sorted_tr = sorted(
+                triggered, key=lambda x: abs(int(x.get("score", 0))), reverse=True
+            )
             advice_parts.append("\n**Paramètres les plus influents :**")
             for t in sorted_tr[:5]:
-                sc = int(t.get('score', 0))
-                expr = t.get('expr', '')
-                comment = t.get('comment', '')
-                sign = '+' if sc >= 0 else ''
-                advice_parts.append(f"\n- {sign}{sc}: `{expr}` {f'— {comment}' if comment else ''}")
+                sc = int(t.get("score", 0))
+                expr = t.get("expr", "")
+                comment = t.get("comment", "")
+                sign = "+" if sc >= 0 else ""
+                advice_parts.append(
+                    f"\n- {sign}{sc}: `{expr}` {f'— {comment}' if comment else ''}"
+                )
         else:
             # Even if no rules triggered, show key raw indicators that may still matter
             key_params = []
             try:
-                rsi_val = float(indicators.get('RSI', 0.0))
+                rsi_val = float(indicators.get("RSI", 0.0))
                 key_params.append(f"RSI = {rsi_val:.1f}")
             except Exception:
                 pass
             try:
-                macd = indicators.get('MACD')
-                macd_s = indicators.get('MACD_SIGNAL')
+                macd = indicators.get("MACD")
+                macd_s = indicators.get("MACD_SIGNAL")
                 if macd is not None and macd_s is not None:
                     diff = float(macd) - float(macd_s)
                     key_params.append(f"MACD diff = {diff:.3f}")
             except Exception:
                 pass
             try:
-                sma20 = indicators.get('SMA20')
-                sma50 = indicators.get('SMA50')
+                sma20 = indicators.get("SMA20")
+                sma50 = indicators.get("SMA50")
                 if sma20 is not None and sma50 is not None:
-                    key_params.append(f"SMA20/SMA50 = {float(sma20):.2f}/{float(sma50):.2f}")
+                    key_params.append(
+                        f"SMA20/SMA50 = {float(sma20):.2f}/{float(sma50):.2f}"
+                    )
             except Exception:
                 pass
             if key_params:
@@ -462,9 +528,10 @@ def generate_advice(decision: str, triggered: list, indicators: dict, fundamenta
 
     return "\n".join(advice_parts)
 
+
 # --- CSS: improved hero styling and high-contrast light theme ---
 st.markdown(
-        """
+    """
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800&display=swap');
         :root{--bg:#f8fafc; --card:#ffffff; --muted:#6b7280; --accent:#6b8cff; --accent-2:#7de1d1; --success:#0f9d58; --danger:#d9230f}
@@ -586,10 +653,10 @@ st.markdown(
 
         </style>
         """,
-        unsafe_allow_html=True,
+    unsafe_allow_html=True,
 )
 
-if st.session_state.get('show_landing', True):
+if st.session_state.get("show_landing", True):
     # Try to load a local image from the app folder and inline it as base64 for the hero background
     # To keep startup fast, avoid reading/encoding large local images into memory.
     # Prefer a remote background image (fallback) rather than embedding a base64 data URL.
@@ -597,7 +664,8 @@ if st.session_state.get('show_landing', True):
 
     import textwrap
 
-    hero_html = textwrap.dedent(f"""
+    hero_html = textwrap.dedent(
+        f"""
     <style>
     .hero{{background-position:center;background-size:cover;background-repeat:no-repeat;display:flex;align-items:center;position:relative;overflow:hidden;left:50%;right:50%;margin-left:-50vw;margin-right:-50vw;width:100vw;height:100vh}}
     .hero-inner{{position:relative;z-index:2;max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:18px;padding:30px;border-radius:12px;backdrop-filter:blur(4px);background:linear-gradient(180deg, rgba(0,0,0,0.45), rgba(0,0,0,0.32));color:#e6eef8}}
@@ -661,7 +729,8 @@ if st.session_state.get('show_landing', True):
             </div>
         </div>
     </section>
-    """)
+    """
+    )
     # Remove any leading newlines/spaces that can make Markdown treat this block as a code fence
     hero_html = hero_html.lstrip()
     # Also strip common leading indentation on every line to avoid accidental code-block formatting
@@ -675,17 +744,16 @@ if st.session_state.get('show_landing', True):
         # Fallback to markdown if components isn't available for some reason
         st.markdown(hero_html, unsafe_allow_html=True)
 
-    
-
     cols = st.columns([1, 0.5, 1])
     with cols[1]:
-        if st.button("Accéder à l'analyse", key='enter_app'):
+        if st.button("Accéder à l'analyse", key="enter_app"):
             st.session_state.show_landing = False
             # Attempt to rerun the Streamlit script. Use st.experimental_rerun when available,
             # otherwise raise the internal RerunException as a fallback for older/newer Streamlit builds.
             try:
                 # Prefer raising the internal RerunException to force a rerun in many Streamlit versions.
                 from streamlit.runtime.scriptrunner.script_runner import RerunException
+
                 raise RerunException()
             except Exception:
                 # Fallback: try the public API if available
@@ -699,44 +767,65 @@ if st.session_state.get('show_landing', True):
 
 with st.sidebar:
     # Header styled with the company accent
-    st.markdown("<div class='sidebar-header' style='font-size:20px;font-weight:700;color:var(--accent)'>Paramètres</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='sidebar-header' style='font-size:20px;font-weight:700;color:var(--accent)'>Paramètres</div>",
+        unsafe_allow_html=True,
+    )
 
     # Use native widget labels (non-empty) so Streamlit doesn't warn; CSS will color the labels.
-    refresh = st.slider('Fréquence de rafraîchissement (sec)', min_value=5, max_value=3600, value=60, key='refresh')
-    period = st.selectbox('Période historique', ['7d','30d','60d','180d','1y','2y'], index=2, key='period')
-    interval = st.selectbox('Interval', ['1m','2m','5m','15m','1d'], index=4, key='interval')
+    refresh = st.slider(
+        "Fréquence de rafraîchissement (sec)",
+        min_value=5,
+        max_value=3600,
+        value=60,
+        key="refresh",
+    )
+    period = st.selectbox(
+        "Période historique",
+        ["7d", "30d", "60d", "180d", "1y", "2y"],
+        index=2,
+        key="period",
+    )
+    interval = st.selectbox(
+        "Interval", ["1m", "2m", "5m", "15m", "1d"], index=4, key="interval"
+    )
 
-    st.markdown('---')
-    st.markdown("<div style='color:var(--accent);font-weight:600'>Entrez un nom d'entreprise (ex: TotalEnergies) ou un ticker (ex: TTE.PA)</div>", unsafe_allow_html=True)
+    st.markdown("---")
+    st.markdown(
+        "<div style='color:var(--accent);font-weight:600'>Entrez un nom d'entreprise (ex: TotalEnergies) ou un ticker (ex: TTE.PA)</div>",
+        unsafe_allow_html=True,
+    )
 
-    with st.expander('Affichages graphiques', expanded=True):
-        show_sma = st.checkbox('Afficher SMA20/SMA50', value=True, key='show_sma')
-        show_bb = st.checkbox('Afficher Bollinger Bands', value=True, key='show_bb')
-        show_volume = st.checkbox('Afficher Volume', value=True, key='show_volume')
-        show_returns = st.checkbox('Afficher Rendements cumulés', value=True, key='show_returns')
-    
+    with st.expander("Affichages graphiques", expanded=True):
+        show_sma = st.checkbox("Afficher SMA20/SMA50", value=True, key="show_sma")
+        show_bb = st.checkbox("Afficher Bollinger Bands", value=True, key="show_bb")
+        show_volume = st.checkbox("Afficher Volume", value=True, key="show_volume")
+        show_returns = st.checkbox(
+            "Afficher Rendements cumulés", value=True, key="show_returns"
+        )
+
     # Refresh data button: clears caches for data/indicators/fundamentals/history then reruns
     try:
-        if st.button('Rafraîchir les données', key='refresh_data'):
+        if st.button("Rafraîchir les données", key="refresh_data"):
             cleared = []
             try:
                 fetch_data.clear()
-                cleared.append('fetch_data')
+                cleared.append("fetch_data")
             except Exception:
                 pass
             try:
                 compute_indicators.clear()
-                cleared.append('compute_indicators')
+                cleared.append("compute_indicators")
             except Exception:
                 pass
             try:
                 fetch_fundamentals.clear()
-                cleared.append('fetch_fundamentals')
+                cleared.append("fetch_fundamentals")
             except Exception:
                 pass
             try:
                 get_history.clear()
-                cleared.append('get_history')
+                cleared.append("get_history")
             except Exception:
                 pass
             st.success(f"Caches vidés: {', '.join(cleared) if cleared else 'aucun' }")
@@ -761,11 +850,21 @@ companies = [
 # We use a fallback avatar generator if no real logo URL is provided.
 COMPANY_META = {
     "Hermès": {"color": "#D4AF37", "logo_url": "https://logo.clearbit.com/hermes.com"},
-    "TotalEnergies": {"color": "#ff5a00", "logo_url": "https://logo.clearbit.com/totalenergies.com"},
+    "TotalEnergies": {
+        "color": "#ff5a00",
+        "logo_url": "https://logo.clearbit.com/totalenergies.com",
+    },
     "Airbus": {"color": "#003366", "logo_url": "https://logo.clearbit.com/airbus.com"},
-    "Sopra Steria": {"color": "#e4002b", "logo_url": "https://logo.clearbit.com/soprasteria.com"},
-    "Dassault Systèmes": {"color": "#1f77b4", "logo_url": "https://logo.clearbit.com/3ds.com"},
+    "Sopra Steria": {
+        "color": "#e4002b",
+        "logo_url": "https://logo.clearbit.com/soprasteria.com",
+    },
+    "Dassault Systèmes": {
+        "color": "#1f77b4",
+        "logo_url": "https://logo.clearbit.com/3ds.com",
+    },
 }
+
 
 def _hex_lighter(hex_color: str, percent: float = 0.45) -> str:
     """Return a lighter version of a hex color by blending with white.
@@ -773,10 +872,10 @@ def _hex_lighter(hex_color: str, percent: float = 0.45) -> str:
     percent: 0..1 where 0 returns original color, 1 returns white.
     """
     try:
-        h = hex_color.lstrip('#')
+        h = hex_color.lstrip("#")
         lv = len(h)
         if lv == 3:
-            h = ''.join([c*2 for c in h])
+            h = "".join([c * 2 for c in h])
         r = int(h[0:2], 16)
         g = int(h[2:4], 16)
         b = int(h[4:6], 16)
@@ -786,6 +885,7 @@ def _hex_lighter(hex_color: str, percent: float = 0.45) -> str:
         return f"#{r:02x}{g:02x}{b:02x}"
     except Exception:
         return hex_color
+
 
 # Determine selected company from query params or session state (we'll use a small HTML dropdown).
 try:
@@ -800,17 +900,17 @@ except Exception:
 available_names = [c[0] for c in companies]
 default_choice = available_names[0]
 candidate = None
-if 'company' in params:
+if "company" in params:
     try:
-        candidate = params.get('company', [default_choice])[0]
+        candidate = params.get("company", [default_choice])[0]
     except Exception:
         candidate = default_choice
 if candidate and candidate in available_names:
     choice = candidate
 else:
     # fall back to session state or default
-    choice = st.session_state.get('company_choice', default_choice)
-st.session_state['company_choice'] = choice
+    choice = st.session_state.get("company_choice", default_choice)
+st.session_state["company_choice"] = choice
 symbol = dict(companies)[choice]
 
 # Render a small HTML dropdown (inside an iframe) so each option can be styled with its brand color.
@@ -818,10 +918,12 @@ try:
     dropdown_items = []
     for cname, _ in companies:
         cmeta = COMPANY_META.get(cname, {})
-        ccolor = cmeta.get('color', '#64748b')
+        ccolor = cmeta.get("color", "#64748b")
         # link will navigate the top window to set the query param and cause a rerun
-        dropdown_items.append(f"<a class='item' href='?company={urllib.parse.quote(cname)}' target='_top' style='display:block;padding:8px 12px;color:{ccolor};text-decoration:none;font-weight:700;border-radius:6px;margin-bottom:6px'>{cname}</a>")
-    items_html = '\n'.join(dropdown_items)
+        dropdown_items.append(
+            f"<a class='item' href='?company={urllib.parse.quote(cname)}' target='_top' style='display:block;padding:8px 12px;color:{ccolor};text-decoration:none;font-weight:700;border-radius:6px;margin-bottom:6px'>{cname}</a>"
+        )
+    items_html = "\n".join(dropdown_items)
     dropdown_html = f"""
     <style>
     .company-dropdown {{ font-family:inherit; }}
@@ -839,99 +941,126 @@ try:
     components.html(dropdown_html, height=120, scrolling=False)
 except Exception:
     # fallback to native selectbox if components/html fails
-    choice = st.selectbox('Choisir une entreprise française', available_names)
-    st.session_state['company_choice'] = choice
+    choice = st.selectbox("Choisir une entreprise française", available_names)
+    st.session_state["company_choice"] = choice
 
 # Per-selection: compute company theme (color + accent) and inject CSS vars so the whole page adapts
 meta_sel = COMPANY_META.get(choice, {})
-company_color = meta_sel.get('color', '#3A8BFF')
+company_color = meta_sel.get("color", "#3A8BFF")
 company_accent2 = _hex_lighter(company_color, 0.45)
-logo_url_default = meta_sel.get('logo_url') or ''
+logo_url_default = meta_sel.get("logo_url") or ""
 try:
     # set CSS variables to override the default theme defined earlier
-    st.markdown(f"<style>:root {{ --accent: {company_color}; --accent-2: {company_accent2}; }}</style>", unsafe_allow_html=True)
+    st.markdown(
+        f"<style>:root {{ --accent: {company_color}; --accent-2: {company_accent2}; }}</style>",
+        unsafe_allow_html=True,
+    )
 except Exception:
     pass
 
-st.markdown(f"<div class='sidebar-line' style='color:var(--accent);font-weight:600'>Symbole sélectionné: <b style='color:var(--accent)'>{symbol}</b></div>", unsafe_allow_html=True)
+st.markdown(
+    f"<div class='sidebar-line' style='color:var(--accent);font-weight:600'>Symbole sélectionné: <b style='color:var(--accent)'>{symbol}</b></div>",
+    unsafe_allow_html=True,
+)
 
 # Visible HTML label (styled) and an accessible hidden native label for the checkbox.
-st.markdown("<div style='margin-top:8px;color:var(--accent);font-weight:600'>Analyse automatique</div>", unsafe_allow_html=True)
-auto_analyze = st.checkbox('Analyse automatique', value=True, help='Lancer automatiquement l\'analyse lors du chargement ou du changement de symbole', key='auto_analyze', label_visibility='hidden')
-run_analysis = auto_analyze or st.button('Analyser')
+st.markdown(
+    "<div style='margin-top:8px;color:var(--accent);font-weight:600'>Analyse automatique</div>",
+    unsafe_allow_html=True,
+)
+auto_analyze = st.checkbox(
+    "Analyse automatique",
+    value=True,
+    help="Lancer automatiquement l'analyse lors du chargement ou du changement de symbole",
+    key="auto_analyze",
+    label_visibility="hidden",
+)
+run_analysis = auto_analyze or st.button("Analyser")
 
 if not run_analysis:
-    st.info("Appuyez sur 'Analyser' ou activez 'Analyse automatique' pour lancer l'analyse.")
+    st.info(
+        "Appuyez sur 'Analyser' ou activez 'Analyse automatique' pour lancer l'analyse."
+    )
 
 if run_analysis:
-    with st.spinner('Analyse en cours — récupération des données et calcul des indicateurs...'):
+    with st.spinner(
+        "Analyse en cours — récupération des données et calcul des indicateurs..."
+    ):
         try:
             if not symbol:
-                st.error('Aucun symbole résolu à analyser')
+                st.error("Aucun symbole résolu à analyser")
                 st.stop()
             df = fetch_data(symbol, period=period, interval=interval)
         except Exception as e:
-            st.error(f'Erreur récupération: {e}')
+            st.error(f"Erreur récupération: {e}")
             st.stop()
 
         indicators = compute_indicators(df)
-        indicators['Close'] = float(df['Close'].iloc[-1])
+        indicators["Close"] = float(df["Close"].iloc[-1])
 
     df_plot = df.copy()
-    df_plot['SMA20'] = df_plot['Close'].rolling(20).mean()
-    df_plot['SMA50'] = df_plot['Close'].rolling(50).mean()
-    ma = df_plot['Close'].rolling(20).mean()
-    sd = df_plot['Close'].rolling(20).std()
-    df_plot['BBU'] = ma + 2 * sd
-    df_plot['BBL'] = ma - 2 * sd
+    df_plot["SMA20"] = df_plot["Close"].rolling(20).mean()
+    df_plot["SMA50"] = df_plot["Close"].rolling(50).mean()
+    ma = df_plot["Close"].rolling(20).mean()
+    sd = df_plot["Close"].rolling(20).std()
+    df_plot["BBU"] = ma + 2 * sd
+    df_plot["BBL"] = ma - 2 * sd
 
     # Expose a few derived values into indicators for advice generation
     try:
-        indicators['SMA20'] = float(df_plot['SMA20'].iloc[-1])
+        indicators["SMA20"] = float(df_plot["SMA20"].iloc[-1])
     except Exception:
-        indicators['SMA20'] = None
+        indicators["SMA20"] = None
     try:
-        indicators['SMA50'] = float(df_plot['SMA50'].iloc[-1])
+        indicators["SMA50"] = float(df_plot["SMA50"].iloc[-1])
     except Exception:
-        indicators['SMA50'] = None
+        indicators["SMA50"] = None
     try:
-        latest_bbu = float(df_plot['BBU'].iloc[-1])
-        latest_bbl = float(df_plot['BBL'].iloc[-1])
-        indicators['BB_WIDTH_PCT'] = (latest_bbu - latest_bbl) / indicators.get('Close', 1.0)
+        latest_bbu = float(df_plot["BBU"].iloc[-1])
+        latest_bbl = float(df_plot["BBL"].iloc[-1])
+        indicators["BB_WIDTH_PCT"] = (latest_bbu - latest_bbl) / indicators.get(
+            "Close", 1.0
+        )
     except Exception:
-        indicators['BB_WIDTH_PCT'] = None
+        indicators["BB_WIDTH_PCT"] = None
 
     fundamentals = fetch_fundamentals(symbol)
     result = engine.evaluate(indicators, fundamentals)
 
     col1, col_div, col2 = st.columns([1, 0.02, 2])
     try:
-        col_div.markdown("<div style='height:100%;border-left:1px solid #e6e6e6;margin:0 8px;'></div>", unsafe_allow_html=True)
+        col_div.markdown(
+            "<div style='height:100%;border-left:1px solid #e6e6e6;margin:0 8px;'></div>",
+            unsafe_allow_html=True,
+        )
     except Exception:
-        col_div.write('')
+        col_div.write("")
 
     with col1:
-        price = indicators['Close']
-        prev = float(df['Close'].iloc[-2]) if len(df) >= 2 else price
+        price = indicators["Close"]
+        prev = float(df["Close"].iloc[-2]) if len(df) >= 2 else price
         change = price - prev
         pct = (change / prev * 100.0) if prev != 0 else 0.0
 
         # Per-company theming (logo + accent colors)
         meta = COMPANY_META.get(choice, {})
-        company_color = meta.get('color', '#3A8BFF')
+        company_color = meta.get("color", "#3A8BFF")
         company_accent2 = _hex_lighter(company_color, 0.45)
         # logo: prefer provided URL, else generate an avatar image with the company name
-        logo_url = meta.get('logo_url')
+        logo_url = meta.get("logo_url")
         if not logo_url:
             try:
                 logo_name = urllib.parse.quote(choice)
                 logo_url = f"https://ui-avatars.com/api/?name={logo_name}&background={company_color.lstrip('#')}&color=ffffff&size=128"
             except Exception:
-                logo_url = ''
+                logo_url = ""
 
         # Inject CSS variables so components use the company color where we referenced --accent
         try:
-            st.markdown(f"<style>:root {{ --accent: {company_color}; --accent-2: {company_accent2}; }}</style>", unsafe_allow_html=True)
+            st.markdown(
+                f"<style>:root {{ --accent: {company_color}; --accent-2: {company_accent2}; }}</style>",
+                unsafe_allow_html=True,
+            )
         except Exception:
             pass
 
@@ -968,70 +1097,105 @@ if run_analysis:
             overall_color = _score_color(overall)
             overall_label = _score_label(overall)
 
-            st.markdown("<div class='card'><div class='header-sub'>Scores (0–5)</div>", unsafe_allow_html=True)
+            st.markdown(
+                "<div class='card'><div class='header-sub'>Scores (0–5)</div>",
+                unsafe_allow_html=True,
+            )
             # Show a prominent overall score at the top
             try:
-                st.markdown(f"<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:10px'>"
-                            f"<div style='font-weight:700;color:var(--accent)'>Score global</div>"
-                            f"<div style='background:{overall_color};color:#fff;padding:8px 14px;border-radius:16px;font-weight:800;font-size:16px'>{overall}/5 — {overall_label}</div>"
-                            f"</div>", unsafe_allow_html=True)
+                st.markdown(
+                    f"<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:10px'>"
+                    f"<div style='font-weight:700;color:var(--accent)'>Score global</div>"
+                    f"<div style='background:{overall_color};color:#fff;padding:8px 14px;border-radius:16px;font-weight:800;font-size:16px'>{overall}/5 — {overall_label}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
             except Exception:
                 pass
 
-            sc_l, sc_r = st.columns([1,1])
-            render_score_card(sc_l, 'RSI', scores.get('RSI', 0))
-            render_score_card(sc_l, 'MACD', scores.get('MACD', 0))
-            render_score_card(sc_l, 'ADX', scores.get('ADX', 0))
-            render_score_card(sc_l, 'STOCH', scores.get('STOCH', 0))
-            render_score_card(sc_l, 'SMA', scores.get('SMA', 0))
-            render_score_card(sc_r, 'Tendance', scores.get('TREND', 0))
-            render_score_card(sc_r, 'H&S', scores.get('HNS', 0))
-            render_score_card(sc_r, 'BB', scores.get('BB', 0))
-            render_score_card(sc_r, 'Candles', scores.get('CANDLE', 0))
-            st.markdown('</div>', unsafe_allow_html=True)
+            sc_l, sc_r = st.columns([1, 1])
+            render_score_card(sc_l, "RSI", scores.get("RSI", 0))
+            render_score_card(sc_l, "MACD", scores.get("MACD", 0))
+            render_score_card(sc_l, "ADX", scores.get("ADX", 0))
+            render_score_card(sc_l, "STOCH", scores.get("STOCH", 0))
+            render_score_card(sc_l, "SMA", scores.get("SMA", 0))
+            render_score_card(sc_r, "Tendance", scores.get("TREND", 0))
+            render_score_card(sc_r, "H&S", scores.get("HNS", 0))
+            render_score_card(sc_r, "BB", scores.get("BB", 0))
+            render_score_card(sc_r, "Candles", scores.get("CANDLE", 0))
+            st.markdown("</div>", unsafe_allow_html=True)
         except Exception:
             pass
 
-        advice = generate_advice(result['decision'], result['triggered'], indicators, fundamentals)
+        advice = generate_advice(
+            result["decision"], result["triggered"], indicators, fundamentals
+        )
         # Render the expander normally; widget labels are now native and colored via CSS.
-        with st.expander('Conseils et détails', expanded=False):
+        with st.expander("Conseils et détails", expanded=False):
             # Styled header inside the expander to adopt company color
-            st.markdown("<div style='font-weight:700;color:var(--accent);font-size:15px;margin-bottom:8px'>Conseils et détails</div>", unsafe_allow_html=True)
+            st.markdown(
+                "<div style='font-weight:700;color:var(--accent);font-size:15px;margin-bottom:8px'>Conseils et détails</div>",
+                unsafe_allow_html=True,
+            )
             # advice contains small HTML snippets (coloured highlights). Allow HTML rendering.
             st.markdown(advice, unsafe_allow_html=True)
 
-        st.markdown("<div class='card'><div class='header-sub'>Signaux techniques</div>", unsafe_allow_html=True)
-        adx = indicators.get('ADX')
-        di_plus = indicators.get('DI_PLUS')
-        di_minus = indicators.get('DI_MINUS')
+        st.markdown(
+            "<div class='card'><div class='header-sub'>Signaux techniques</div>",
+            unsafe_allow_html=True,
+        )
+        adx = indicators.get("ADX")
+        di_plus = indicators.get("DI_PLUS")
+        di_minus = indicators.get("DI_MINUS")
         sigs = []
         if adx is not None:
             sigs.append(f"ADX: {adx:.1f}")
         if di_plus is not None and di_minus is not None:
             sigs.append(f"+DI: {di_plus:.1f} | -DI: {di_minus:.1f}")
         cs = []
-        if indicators.get('candlestick_hammer'):
-            cs.append('🔔 Hammer')
-        if indicators.get('candlestick_bull_engulf'):
-            cs.append('📈 Bull Engulfing')
-        if indicators.get('candlestick_bear_engulf'):
-            cs.append('📉 Bear Engulfing')
-        if indicators.get('candlestick_doji'):
-            cs.append('⚪ Doji')
+        if indicators.get("candlestick_hammer"):
+            cs.append("🔔 Hammer")
+        if indicators.get("candlestick_bull_engulf"):
+            cs.append("📈 Bull Engulfing")
+        if indicators.get("candlestick_bear_engulf"):
+            cs.append("📉 Bear Engulfing")
+        if indicators.get("candlestick_doji"):
+            cs.append("⚪ Doji")
         if cs:
-            sigs.append(' / '.join(cs))
-        st.markdown('<div style="color:var(--muted);font-size:13px">' + ' · '.join(sigs) + '</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+            sigs.append(" / ".join(cs))
+        st.markdown(
+            '<div style="color:var(--muted);font-size:13px">'
+            + " · ".join(sigs)
+            + "</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
 
         # --- Données techniques: rendements, volatilité, indicateurs bruts ---
-        with st.expander('Données techniques (rendements, volatilité, indicateurs bruts)', expanded=False):
-            st.markdown("<div style='font-weight:700;color:var(--accent);font-size:15px;margin-bottom:8px'>Données techniques</div>", unsafe_allow_html=True)
+        with st.expander(
+            "Données techniques (rendements, volatilité, indicateurs bruts)",
+            expanded=False,
+        ):
+            st.markdown(
+                "<div style='font-weight:700;color:var(--accent);font-size:15px;margin-bottom:8px'>Données techniques</div>",
+                unsafe_allow_html=True,
+            )
             try:
                 # Cumulative returns over the loaded period
-                returns_series = (df['Close'].pct_change().fillna(0) + 1.0).cumprod() - 1.0
-                cum_pct = float(returns_series.iloc[-1]) * 100.0 if len(returns_series) > 0 else 0.0
-                start_price = float(df['Close'].iloc[0]) if len(df) > 0 else price
-                period_return_pct = (price / start_price - 1.0) * 100.0 if start_price and len(df) > 1 else 0.0
+                returns_series = (
+                    df["Close"].pct_change().fillna(0) + 1.0
+                ).cumprod() - 1.0
+                cum_pct = (
+                    float(returns_series.iloc[-1]) * 100.0
+                    if len(returns_series) > 0
+                    else 0.0
+                )
+                start_price = float(df["Close"].iloc[0]) if len(df) > 0 else price
+                period_return_pct = (
+                    (price / start_price - 1.0) * 100.0
+                    if start_price and len(df) > 1
+                    else 0.0
+                )
 
                 # Approximate period length in days (if index is datetime)
                 try:
@@ -1042,51 +1206,53 @@ if run_analysis:
                 ann_return = None
                 if days and days > 0:
                     try:
-                        ann_return = ((1.0 + cum_pct / 100.0) ** (365.0 / days) - 1.0) * 100.0
+                        ann_return = (
+                            (1.0 + cum_pct / 100.0) ** (365.0 / days) - 1.0
+                        ) * 100.0
                     except Exception:
                         ann_return = None
 
                 # Annualized volatility (estimate)
                 try:
-                    daily_ret = df['Close'].pct_change().dropna()
-                    vol_annual = float(daily_ret.std()) * (252 ** 0.5) * 100.0
+                    daily_ret = df["Close"].pct_change().dropna()
+                    vol_annual = float(daily_ret.std()) * (252**0.5) * 100.0
                 except Exception:
                     vol_annual = None
 
-                avg_vol = float(df['Volume'].mean()) if 'Volume' in df.columns else None
+                avg_vol = float(df["Volume"].mean()) if "Volume" in df.columns else None
 
                 rows = []
-                rows.append(('Prix actuel', f"{price:.2f} €"))
-                rows.append(('Variation', f"{change:+.2f} € ({pct:+.2f} % )"))
-                rows.append(('Rendement sur période', f"{period_return_pct:+.2f}%"))
-                rows.append(('Rendement cumulé', f"{cum_pct:+.2f}%"))
+                rows.append(("Prix actuel", f"{price:.2f} €"))
+                rows.append(("Variation", f"{change:+.2f} € ({pct:+.2f} % )"))
+                rows.append(("Rendement sur période", f"{period_return_pct:+.2f}%"))
+                rows.append(("Rendement cumulé", f"{cum_pct:+.2f}%"))
                 if ann_return is not None:
-                    rows.append(('Rendement annualisé (est.)', f"{ann_return:+.2f}%"))
+                    rows.append(("Rendement annualisé (est.)", f"{ann_return:+.2f}%"))
                 if vol_annual is not None:
-                    rows.append(('Volatilité annualisée', f"{vol_annual:.2f}%"))
+                    rows.append(("Volatilité annualisée", f"{vol_annual:.2f}%"))
                 if avg_vol is not None:
-                    rows.append(('Volume moyen', f"{avg_vol:,.0f}"))
+                    rows.append(("Volume moyen", f"{avg_vol:,.0f}"))
 
                 # Raw indicator values
-                for k in ('RSI', 'MACD', 'ADX', 'SMA20', 'SMA50', 'BB_WIDTH_PCT'):
+                for k in ("RSI", "MACD", "ADX", "SMA20", "SMA50", "BB_WIDTH_PCT"):
                     v = indicators.get(k)
                     if v is None:
                         continue
-                    if k == 'BB_WIDTH_PCT':
+                    if k == "BB_WIDTH_PCT":
                         try:
-                            rows.append(('Bollinger width', f"{float(v) * 100:.2f}%"))
+                            rows.append(("Bollinger width", f"{float(v) * 100:.2f}%"))
                         except Exception:
-                            rows.append(('Bollinger width', str(v)))
-                    elif k in ('SMA20', 'SMA50'):
+                            rows.append(("Bollinger width", str(v)))
+                    elif k in ("SMA20", "SMA50"):
                         try:
                             rows.append((k, f"{float(v):.2f}"))
                         except Exception:
                             rows.append((k, str(v)))
-                    elif k == 'MACD':
+                    elif k == "MACD":
                         try:
-                            rows.append(('MACD', f"{float(v):.3f}"))
+                            rows.append(("MACD", f"{float(v):.3f}"))
                         except Exception:
-                            rows.append(('MACD', str(v)))
+                            rows.append(("MACD", str(v)))
                     else:
                         try:
                             rows.append((k, f"{float(v):.2f}"))
@@ -1095,9 +1261,9 @@ if run_analysis:
 
                 # Dividend yield if present in fundamentals
                 try:
-                    dy = fundamentals.get('dividendYield')
+                    dy = fundamentals.get("dividendYield")
                     if dy is not None:
-                        rows.append(('Rendement (div)', f"{float(dy) * 100:.2f}%"))
+                        rows.append(("Rendement (div)", f"{float(dy) * 100:.2f}%"))
                 except Exception:
                     pass
 
@@ -1108,11 +1274,15 @@ if run_analysis:
                 html += "</table></div>"
                 st.markdown(html, unsafe_allow_html=True)
             except Exception as e:
-                st.write('Erreur calcul des données techniques :', e)
+                st.write("Erreur calcul des données techniques :", e)
 
-        with st.expander('Données fondamentales', expanded=False):
-            st.markdown("<div style='font-weight:700;color:var(--accent);font-size:15px;margin-bottom:8px'>Données fondamentales</div>", unsafe_allow_html=True)
+        with st.expander("Données fondamentales", expanded=False):
+            st.markdown(
+                "<div style='font-weight:700;color:var(--accent);font-size:15px;margin-bottom:8px'>Données fondamentales</div>",
+                unsafe_allow_html=True,
+            )
             if fundamentals:
+
                 def humanize_number(x):
                     try:
                         n = float(x)
@@ -1133,63 +1303,82 @@ if run_analysis:
                     try:
                         return f"{float(x):.{digits}f}"
                     except Exception:
-                        return 'N/A'
+                        return "N/A"
 
-                mcap = humanize_number(fundamentals.get('marketCap'))
-                fpe = fmt_float(fundamentals.get('forwardPE'))
-                tpe = fmt_float(fundamentals.get('trailingPE'))
+                mcap = humanize_number(fundamentals.get("marketCap"))
+                fpe = fmt_float(fundamentals.get("forwardPE"))
+                tpe = fmt_float(fundamentals.get("trailingPE"))
                 col_a, col_b, col_c = st.columns(3)
-                col_a.metric('Market Cap', mcap)
-                col_b.metric('Forward P/E', fpe)
-                col_c.metric('Trailing P/E', tpe)
+                col_a.metric("Market Cap", mcap)
+                col_b.metric("Forward P/E", fpe)
+                col_c.metric("Trailing P/E", tpe)
 
                 label_map = [
-                    ('Dividende / action', 'dividendRate'),
-                    ('Rendement (div)', 'dividendYield'),
-                    ('EPS', 'earningsPerShare'),
-                    ('PER (trailing)', 'trailingPE'),
-                    ('Price / Book', 'priceToBook')
+                    ("Dividende / action", "dividendRate"),
+                    ("Rendement (div)", "dividendYield"),
+                    ("EPS", "earningsPerShare"),
+                    ("PER (trailing)", "trailingPE"),
+                    ("Price / Book", "priceToBook"),
                 ]
                 rows = []
                 for label, key in label_map:
                     val = fundamentals.get(key)
                     if val is None:
-                        display = 'N/A'
+                        display = "N/A"
                     else:
                         if isinstance(val, (int, float)):
-                            if key in ('dividendYield',):
+                            if key in ("dividendYield",):
                                 try:
                                     display = f"{float(val)*100:.2f}%"
                                 except Exception:
                                     display = f"{val}"
-                            elif key in ('dividendRate','earningsPerShare'):
+                            elif key in ("dividendRate", "earningsPerShare"):
                                 display = f"{float(val):.2f}"
                             else:
                                 display = str(val)
                         else:
                             display = str(val)
-                    rows.append({'Champ': label, 'Valeur': display})
+                    rows.append({"Champ": label, "Valeur": display})
 
     with col2:
-        st.subheader(f'Graphique {symbol}')
+        st.subheader(f"Graphique {symbol}")
         df_plot = df_plot.copy()
         try:
-            df_plot['returns_cum'] = (df_plot['Close'].pct_change().fillna(0) + 1.0).cumprod() - 1.0
+            df_plot["returns_cum"] = (
+                df_plot["Close"].pct_change().fillna(0) + 1.0
+            ).cumprod() - 1.0
         except Exception:
-            df_plot['returns_cum'] = 0.0
+            df_plot["returns_cum"] = 0.0
 
-        show_sma = st.session_state.get('show_sma', True)
-        show_bb = st.session_state.get('show_bb', True)
-        show_volume = st.session_state.get('show_volume', True)
-        show_returns = st.session_state.get('show_returns', True)
+        show_sma = st.session_state.get("show_sma", True)
+        show_bb = st.session_state.get("show_bb", True)
+        show_volume = st.session_state.get("show_volume", True)
+        show_returns = st.session_state.get("show_returns", True)
 
         rows_heights = [0.7, 0.3]
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03,
-                            row_heights=rows_heights, specs=[[{"secondary_y": False}], [{"secondary_y": False}]])
+        fig = make_subplots(
+            rows=2,
+            cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.03,
+            row_heights=rows_heights,
+            specs=[[{"secondary_y": False}], [{"secondary_y": False}]],
+        )
 
-        fig.add_trace(go.Candlestick(x=df_plot.index,
-                                     open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'],
-                                     name='OHLC', increasing_line_color='#0f9d58', decreasing_line_color='#d9230f'), row=1, col=1)
+        fig.add_trace(
+            go.Candlestick(
+                x=df_plot.index,
+                open=df_plot["Open"],
+                high=df_plot["High"],
+                low=df_plot["Low"],
+                close=df_plot["Close"],
+                name="OHLC",
+                increasing_line_color="#0f9d58",
+                decreasing_line_color="#d9230f",
+            ),
+            row=1,
+            col=1,
+        )
 
         if show_sma:
             # Use the selected company color for SMA20 and a lighter accent for SMA50
@@ -1197,49 +1386,130 @@ if run_analysis:
                 sma20_color = company_color
                 sma50_color = company_accent2
             except Exception:
-                sma20_color = '#1f77b4'
-                sma50_color = '#ff7f0e'
-            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['SMA20'], mode='lines', name='SMA20', line={'color': sma20_color}), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['SMA50'], mode='lines', name='SMA50', line={'color': sma50_color}), row=1, col=1)
+                sma20_color = "#1f77b4"
+                sma50_color = "#ff7f0e"
+            fig.add_trace(
+                go.Scatter(
+                    x=df_plot.index,
+                    y=df_plot["SMA20"],
+                    mode="lines",
+                    name="SMA20",
+                    line={"color": sma20_color},
+                ),
+                row=1,
+                col=1,
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=df_plot.index,
+                    y=df_plot["SMA50"],
+                    mode="lines",
+                    name="SMA50",
+                    line={"color": sma50_color},
+                ),
+                row=1,
+                col=1,
+            )
         if show_bb:
-            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['BBU'], mode='lines', name='BBU', line={'color': 'rgba(31,119,180,0.2)'}), row=1, col=1)
-            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['BBL'], mode='lines', name='BBL', line={'color': 'rgba(31,119,180,0.2)'}), row=1, col=1)
+            fig.add_trace(
+                go.Scatter(
+                    x=df_plot.index,
+                    y=df_plot["BBU"],
+                    mode="lines",
+                    name="BBU",
+                    line={"color": "rgba(31,119,180,0.2)"},
+                ),
+                row=1,
+                col=1,
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=df_plot.index,
+                    y=df_plot["BBL"],
+                    mode="lines",
+                    name="BBL",
+                    line={"color": "rgba(31,119,180,0.2)"},
+                ),
+                row=1,
+                col=1,
+            )
 
-        if show_volume and 'Volume' in df_plot.columns:
-            fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['Volume'], name='Volume', marker_color='rgba(100,100,120,0.6)'), row=2, col=1)
+        if show_volume and "Volume" in df_plot.columns:
+            fig.add_trace(
+                go.Bar(
+                    x=df_plot.index,
+                    y=df_plot["Volume"],
+                    name="Volume",
+                    marker_color="rgba(100,100,120,0.6)",
+                ),
+                row=2,
+                col=1,
+            )
 
         if show_returns:
-            fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['returns_cum'] * 100.0, mode='lines', name='Cumulative Return %', line={'color': '#444444'}), row=2, col=1)
+            fig.add_trace(
+                go.Scatter(
+                    x=df_plot.index,
+                    y=df_plot["returns_cum"] * 100.0,
+                    mode="lines",
+                    name="Cumulative Return %",
+                    line={"color": "#444444"},
+                ),
+                row=2,
+                col=1,
+            )
 
-        pos = indicators.get('hs_positions')
+        pos = indicators.get("hs_positions")
         if pos and isinstance(pos, (list, tuple)):
             for idx in pos:
                 try:
                     xval = df_plot.index[int(idx)]
-                    yval = float(df_plot['Close'].iloc[int(idx)])
-                    fig.add_vline(x=xval, line={'color': 'purple', 'width': 1, 'dash': 'dot'})
-                    fig.add_annotation(x=xval, y=yval, text='H&S', showarrow=True, arrowhead=2, ax=0, ay=-30)
+                    yval = float(df_plot["Close"].iloc[int(idx)])
+                    fig.add_vline(
+                        x=xval, line={"color": "purple", "width": 1, "dash": "dot"}
+                    )
+                    fig.add_annotation(
+                        x=xval,
+                        y=yval,
+                        text="H&S",
+                        showarrow=True,
+                        arrowhead=2,
+                        ax=0,
+                        ay=-30,
+                    )
                 except Exception:
                     pass
 
-        fig.update_layout(margin={'l': 20, 'r': 20, 't': 30, 'b': 20}, height=650)
-        fig.update_layout(paper_bgcolor='white', plot_bgcolor='white')
-        fig.update_xaxes(showgrid=True, gridcolor='rgba(0,0,0,0.06)', zerolinecolor='rgba(0,0,0,0.04)', tickfont=dict(color='rgba(0,0,0,0.88)'))
-        fig.update_yaxes(showgrid=True, gridcolor='rgba(0,0,0,0.06)', zerolinecolor='rgba(0,0,0,0.04)', tickfont=dict(color='rgba(0,0,0,0.88)'))
+        fig.update_layout(margin={"l": 20, "r": 20, "t": 30, "b": 20}, height=650)
+        fig.update_layout(paper_bgcolor="white", plot_bgcolor="white")
+        fig.update_xaxes(
+            showgrid=True,
+            gridcolor="rgba(0,0,0,0.06)",
+            zerolinecolor="rgba(0,0,0,0.04)",
+            tickfont=dict(color="rgba(0,0,0,0.88)"),
+        )
+        fig.update_yaxes(
+            showgrid=True,
+            gridcolor="rgba(0,0,0,0.06)",
+            zerolinecolor="rgba(0,0,0,0.04)",
+            tickfont=dict(color="rgba(0,0,0,0.88)"),
+        )
         # Use new API: width='stretch' replaces use_container_width=True (deprecated)
         try:
-            st.plotly_chart(fig, width='stretch')
+            st.plotly_chart(fig, width="stretch")
         except Exception:
             # Fallback for older Streamlit versions
             st.plotly_chart(fig, use_container_width=True)
 
-    save_analysis(symbol, result['decision'], result['reason'], indicators, fundamentals)
+    save_analysis(
+        symbol, result["decision"], result["reason"], indicators, fundamentals
+    )
 
-    st.markdown('---')
-    st.subheader('Historique des analyses')
+    st.markdown("---")
+    st.subheader("Historique des analyses")
     hist = get_history(200)
     if hist:
         df_hist = pd.DataFrame(hist)
         st.dataframe(df_hist)
     else:
-        st.write('Aucune analyse enregistrée')
+        st.write("Aucune analyse enregistrée")
