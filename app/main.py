@@ -14,6 +14,7 @@ from app.db import init_db, save_analysis, get_history
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import streamlit.components.v1 as components
 
 # Thresholds for RSI interpretation (can be tuned)
 RSI_OVERSOLD = 30.0
@@ -21,6 +22,26 @@ RSI_CAUTION = 60.0
 RSI_OVERBOUGHT = 70.0
 
 st.set_page_config(page_title='Traid - Analyseur', layout='wide')
+
+# Landing control: show a cover page before accessing the analysis
+if 'show_landing' not in st.session_state:
+    st.session_state.show_landing = True
+
+# Small sidebar control to force-show the landing page (useful during development)
+try:
+    if st.sidebar.button("Afficher la page d'accueil"):
+        st.session_state.show_landing = True
+        try:
+            from streamlit.runtime.scriptrunner.script_runner import RerunException
+            raise RerunException()
+        except Exception:
+            try:
+                st.experimental_rerun()
+            except Exception:
+                pass
+except Exception:
+    # If sidebar isn't ready yet for some Streamlit builds, ignore silently
+    pass
 
 @st.cache_resource
 def get_engine():
@@ -41,31 +62,15 @@ def _clamp_score(v: int) -> int:
         iv = int(v)
     except Exception:
         iv = 0
-    return max(0, min(5, iv))
+    if iv < 0:
+        return 0
+    if iv > 5:
+        return 5
+    return iv
 
-def _score_label(score: int) -> str:
-    labels = {
-        0: 'Très mauvais',
-        1: 'Mauvais',
-        2: 'Passable',
-        3: 'Neutre',
-        4: 'Bon',
-        5: 'Excellent'
-    }
-    return labels.get(_clamp_score(score), 'N/A')
 
 def compute_indicator_scores(indicators: dict) -> dict:
     out = {}
-    try:
-        rsi = float(indicators.get('RSI', 50.0))
-        out['RSI'] = _clamp_score(round((rsi / 100.0) * 5))
-    except Exception:
-        out['RSI'] = 0
-    try:
-        adx = float(indicators.get('ADX', 20.0))
-        out['ADX'] = _clamp_score(round((adx / 100.0) * 5))
-    except Exception:
-        out['ADX'] = 0
     try:
         macd = indicators.get('MACD')
         macd_s = indicators.get('MACD_SIGNAL')
@@ -85,6 +90,7 @@ def compute_indicator_scores(indicators: dict) -> dict:
                 out['MACD'] = 2
     except Exception:
         out['MACD'] = 3
+
     try:
         trend = str(indicators.get('trend', 'Sideways'))
         if 'Up (strong)' in trend:
@@ -101,6 +107,7 @@ def compute_indicator_scores(indicators: dict) -> dict:
             out['TREND'] = 3
     except Exception:
         out['TREND'] = 3
+
     try:
         if indicators.get('hs_found'):
             conf = float(indicators.get('hs_confidence', 0.0))
@@ -114,6 +121,7 @@ def compute_indicator_scores(indicators: dict) -> dict:
             out['HNS'] = 5
     except Exception:
         out['HNS'] = 5
+
     return out
 
 def _score_color(score: int) -> str:
@@ -158,111 +166,32 @@ def generate_advice(decision: str, triggered: list, indicators: dict, fundamenta
         except Exception:
             rsi_val = None
 
-        # Build messages from triggered rules but if RSI is neutral, prefer stronger indicators
-        triggered_msgs = []
-        for rule in triggered:
-            comment = (rule.get('comment', '') or '').lower()
-            expr = (rule.get('expr', '') or '')
-            expr_l = expr.lower()
-            if 'rsi <' in expr_l or 'oversold' in comment:
-                triggered_msgs.append((0, f"Règle: `{expr}` — survente indiquée"))
-            elif 'rsi >' in expr_l or 'overbought' in comment:
-                triggered_msgs.append((0, f"Règle: `{expr}` — surachat indiqué"))
-            elif 'sma20 > sma50' in expr_l or ('sma20' in expr_l and 'sma50' in expr_l):
-                triggered_msgs.append((3, "La SMA20 est au-dessus de la SMA50 — tendance haussière."))
-            else:
-                triggered_msgs.append((1, f"Règle: `{expr}` ({comment})"))
-
-        # If no rules triggered, fallback note
-        if not triggered_msgs:
-            triggered_msgs.append((0, "Aucun signal technique majeur déclenché par vos règles."))
-
-        # Determine RSI value
-        rsi_val = None
-        try:
-            rsi_val = float(indicators.get('RSI', 0.0))
-        except Exception:
-            rsi_val = None
-
-        neutral_rsi = (rsi_val is not None and (RSI_CAUTION <= rsi_val < RSI_OVERBOUGHT))
-
-        # If RSI is neutral, build supporting indicators list (MACD, ADX, SMA crossover, BB width, volume, fundamentals)
-        supporting = []
-        if neutral_rsi:
-            try:
-                macd = indicators.get('MACD')
-                macd_s = indicators.get('MACD_SIGNAL')
-                if macd is not None and macd_s is not None:
-                    diff = float(macd) - float(macd_s)
-                    if diff > 0 and float(macd) > 0:
-                        supporting.append(f"Momentum : MACD positive (diff = {diff:.3f}) — momentum haussier")
-                    elif diff < 0:
-                        supporting.append(f"Momentum : MACD négative (diff = {diff:.3f}) — momentum baissier")
-            except Exception:
-                pass
-            try:
-                adx = indicators.get('ADX')
-                if adx is not None and float(adx) >= 25:
-                    supporting.append(f"ADX = {float(adx):.1f} — tendance forte")
-            except Exception:
-                pass
-            try:
-                sma20 = indicators.get('SMA20')
-                sma50 = indicators.get('SMA50')
-                if sma20 is not None and sma50 is not None:
-                    if float(sma20) > float(sma50):
-                        supporting.append("SMA20 > SMA50 — tendance haussière confirmée par les moyennes mobiles")
-                    else:
-                        supporting.append("SMA20 < SMA50 — attention, tendance baissière")
-            except Exception:
-                pass
-            try:
-                bw = indicators.get('BB_WIDTH_PCT')
-                if bw is not None:
-                    if bw > 0.06:
-                        supporting.append("Bandes de Bollinger larges — volatilité élevée")
-                    elif bw < 0.03:
-                        supporting.append("Bandes de Bollinger étroites — faible volatilité / consolidation")
-            except Exception:
-                pass
-            try:
-                vol = indicators.get('Volume')
-                vol_avg = indicators.get('Volume_AVG')
-                if vol is not None and vol_avg is not None and float(vol) > 1.5 * float(vol_avg):
-                    supporting.append("Volume élevé récent — confirmation du mouvement")
-            except Exception:
-                pass
-            try:
-                r1d = indicators.get('return_1d_pct')
-                if r1d is not None and abs(float(r1d)) > 2.0:
-                    supporting.append(f"Rendement 1j = {float(r1d):.2f}% — mouvement significatif récent")
-            except Exception:
-                pass
-            # Fundamentals
-            try:
-                pe = (fundamentals.get('trailingPE') or fundamentals.get('forwardPE') or fundamentals.get('pe')) if fundamentals else None
-                if pe is not None:
-                    pef = float(pe)
-                    if pef <= 15:
-                        supporting.append(f"PER faible ({pef:.1f}) — valorisation intéressante")
-                    elif pef >= 30:
-                        supporting.append(f"PER élevé ({pef:.1f}) — prudence sur la valorisation")
-            except Exception:
-                pass
-
-        # Present arguments: prefer supporting indicators if RSI neutral
-        if neutral_rsi and supporting:
-            advice_parts.append("\n- Le RSI est en zone neutre — appuyons-nous sur d'autres indicateurs :")
-            for s in supporting:
-                advice_parts.append(f"\n- {s}")
-            # still show top triggered rules afterwards
-            advice_parts.append("\n- Règles déclenchées :")
-            for _, msg in sorted(triggered_msgs, key=lambda x: -x[0]):
-                advice_parts.append(f"\n- {msg}")
+        if not triggered:
+            advice_parts.append("\n- Aucun signal technique majeur n'a été déclenché par vos règles.")
         else:
-            # show triggered messages (and RSI comments included earlier)
-            for _, msg in sorted(triggered_msgs, key=lambda x: -x[0]):
-                advice_parts.append(f"\n- {msg}")
+            for rule in triggered:
+                comment = (rule.get('comment', '') or '').lower()
+                expr = (rule.get('expr', '') or '')
+                expr_l = expr.lower()
+                # Handle RSI-related rules more precisely using thresholds
+                if 'rsi <' in expr_l or 'oversold' in comment:
+                    if rsi_val is not None and rsi_val <= RSI_OVERSOLD:
+                        advice_parts.append(f"\n- Le RSI ({rsi_val:.1f}) est en zone de survente (≤{RSI_OVERSOLD:.0f}), ce qui peut indiquer un rebond.")
+                    else:
+                        cur = f"{rsi_val:.1f}" if rsi_val is not None else 'N/A'
+                        advice_parts.append(f"\n- Règle déclenchée : `{expr}` — RSI actuel = {cur} (pas strictement en survente).")
+                elif 'rsi >' in expr_l or 'overbought' in comment:
+                    if rsi_val is not None and rsi_val >= RSI_OVERBOUGHT:
+                        advice_parts.append(f"\n- Le RSI ({rsi_val:.1f}) est en zone de surachat (≥{RSI_OVERBOUGHT:.0f}), signalant un risque de correction.")
+                    elif rsi_val is not None and rsi_val >= RSI_CAUTION:
+                        advice_parts.append(f"\n- Le RSI ({rsi_val:.1f}) est modérément élevé ({RSI_CAUTION:.0f}–{RSI_OVERBOUGHT:.0f}) — prudence requise.")
+                    else:
+                        cur = f"{rsi_val:.1f}" if rsi_val is not None else 'N/A'
+                        advice_parts.append(f"\n- Règle déclenchée : `{expr}` — RSI actuel = {cur}.")
+                elif 'sma20 > sma50' in expr_l or ('sma20' in expr_l and 'sma50' in expr_l):
+                    advice_parts.append("\n- La moyenne mobile à 20 jours est au-dessus de celle à 50 jours, confirmant une tendance haussière.")
+                else:
+                    advice_parts.append(f"\n- Signal déclenché par la règle : `{expr}` ({comment}).")
     except Exception:
         advice_parts.append("\n- Erreur lors de l'analyse des règles déclenchées.")
     # Contre-arguments / points de vigilance (indicateurs contraires)
@@ -368,23 +297,192 @@ def generate_advice(decision: str, triggered: list, indicators: dict, fundamenta
 
     return "\n".join(advice_parts)
 
-# --- CSS: simple, high-contrast light theme for legibility ---
+# --- CSS: improved hero styling and high-contrast light theme ---
 st.markdown(
-    """
-    <style>
-    :root{--bg:#ffffff; --card:#ffffff; --muted:#6b7280; --accent:#1f77b4; --success:#0f9d58; --danger:#d9230f}
-    html, body {background:var(--bg); color:#0f1724}
-    .header {font-family: Inter, 'Segoe UI', Roboto, sans-serif; font-weight:700; color:#0f1724}
-    .card{background:var(--card); padding:14px; border-radius:10px; box-shadow:0 6px 18px rgba(12,18,30,0.06); border:1px solid rgba(12,18,30,0.04)}
-    .score-card{background:var(--card); padding:8px;border-radius:10px;margin-bottom:6px;border:1px solid rgba(0,0,0,0.03)}
-    .header-sub{color:#0f1724;font-weight:700}
-    select, input, textarea, button {background: #fafafa !important; color: #0f1724 !important; border:1px solid rgba(0,0,0,0.06) !important}
-    </style>
-    """,
-    unsafe_allow_html=True,
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800&display=swap');
+        :root{--bg:#f8fafc; --card:#ffffff; --muted:#6b7280; --accent:#6b8cff; --accent-2:#7de1d1; --success:#0f9d58; --danger:#d9230f}
+        html, body {background:var(--bg); color:#0f1724; font-family: 'Poppins', Inter, 'Segoe UI', Roboto, sans-serif}
+        .header {font-weight:800; color:#0f1724}
+        .card{background:var(--card); padding:14px; border-radius:10px; box-shadow:0 6px 28px rgba(12,18,30,0.06); border:1px solid rgba(12,18,30,0.04)}
+        .score-card{background:var(--card); padding:8px;border-radius:10px;margin-bottom:6px;border:1px solid rgba(0,0,0,0.03)}
+        .header-sub{color:#0f1724;font-weight:700}
+        select, input, textarea, button {background: #fff !important; color: #0f1724 !important; border:1px solid rgba(0,0,0,0.06) !important}
+
+        /* Hero styles (polished) */
+        .hero{background-position:center; background-size:cover; background-repeat:no-repeat; min-height:480px; display:flex; align-items:center; border-radius:14px; margin-bottom:32px; position:relative; overflow:hidden}
+        .hero::before{ content: ''; position:absolute; inset:0; background: linear-gradient(90deg, rgba(4,9,30,0.55) 0%, rgba(10,20,40,0.28) 40%, rgba(255,255,255,0.02) 100%); mix-blend-mode: multiply }
+        .hero-inner{position:relative; z-index:2; max-width:1100px; margin:0 auto; display:flex; flex-direction:column; gap:18px; padding:30px; border-radius:12px; backdrop-filter: blur(6px); background: linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,255,255,0.80));}
+        .hero-title{display:flex;align-items:center;gap:20px}
+        .logo{background:linear-gradient(135deg,var(--accent),var(--accent-2)); color:white; width:88px;height:88px;border-radius:16px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:36px;box-shadow:0 10px 30px rgba(6,30,60,0.08)}
+        .app-name{font-size:36px;font-weight:800;color:transparent;background:linear-gradient(90deg,#3A8BFF,#06B6D4);-webkit-background-clip:text;background-clip:text;letter-spacing:-0.5px}
+        .mini-slogan{font-size:12px;color:#64748b;margin-top:4px;font-weight:600}
+        .app-tag{font-size:15px;color:#334155;margin-top:6px;font-weight:600}
+        .hero-desc{color:#334155;margin:0;max-width:980px;font-size:15px;line-height:1.6}
+        .schools{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:14px}
+        .badge{background:linear-gradient(90deg,#eef2ff,#f0f9ff);padding:6px 10px;border-radius:999px;color:#1e40af;margin-left:6px;font-weight:700;border:1px solid rgba(30,64,175,0.08)}
+
+        .team{margin-top:6px}
+        .members{display:flex;gap:16px;flex-wrap:wrap}
+        .member{display:flex;flex-direction:column;align-items:center;width:90px}
+        .avatar{background:linear-gradient(135deg,#3A8BFF,#7C3AED);width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:18px;box-shadow:0 8px 18px rgba(3,12,30,0.12);transition:transform .18s ease}
+        .avatar:hover{transform:translateY(-4px)}
+        .name{font-size:13px;color:#0f1724;margin-top:8px;text-align:center}
+
+        .cta-wrap{display:flex;justify-content:center;margin-top:14px}
+        .cta-button{background:linear-gradient(90deg,var(--accent),var(--accent-2)); color:white;padding:14px 26px;border-radius:14px;font-weight:800;border:none;box-shadow:0 12px 34px rgba(6,30,60,0.14); cursor:pointer; font-size:16px}
+        .cta-button:hover{transform:translateY(-3px);transition:all .18s ease}
+
+        /* Small visual tweaks for Streamlit default button below hero */
+        .stButton>button{border-radius:12px;padding:14px 22px;background:linear-gradient(90deg,#3A8BFF,#06B6D4);color:#fff;font-weight:700;border:none;box-shadow:0 10px 30px rgba(58,139,255,0.18)}
+        .stButton>button::after{content:' →';margin-left:8px}
+
+        /* Features */
+        .features{display:flex;gap:12px;margin-top:14px}
+        .feature{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.9);padding:8px 12px;border-radius:10px;box-shadow:0 6px 18px rgba(3,12,30,0.04);font-weight:600;color:#0f1724}
+        .f-icon{background:linear-gradient(90deg,#3A8BFF,#7C3AED);width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800}
+
+        /* Illustration on the right */
+        .hero-top{display:flex;gap:22px;align-items:stretch}
+        .hero-left{flex:1}
+        .hero-illustration{width:42%; background-size:cover;background-position:right center;border-radius:12px;filter:blur(2px) saturate(1.05);opacity:0.95}
+
+        /* Animations */
+        @keyframes fadeInUp { from {opacity:0; transform:translateY(18px);} to {opacity:1; transform:none;} }
+        @keyframes popIn { from {opacity:0; transform:scale(.98);} to {opacity:1; transform:scale(1);} }
+        .animate-up{animation:fadeInUp .7s ease both}
+        .logo, .member, .feature{animation:popIn .6s ease both}
+
+        /* Responsive */
+        @media (max-width: 900px){
+            .hero-inner{padding:18px}
+            .app-name{font-size:24px}
+            .logo{width:56px;height:56px;font-size:20px}
+            .members{gap:10px}
+            .hero{min-height:380px}
+            .hero-illustration{display:none}
+            .features{flex-direction:column}
+        }
+
+        </style>
+        """,
+        unsafe_allow_html=True,
 )
 
-st.markdown("<h1 class='header'>Traid — Analyse automatique (yfinance)</h1>", unsafe_allow_html=True)
+if st.session_state.get('show_landing', True):
+    # Try to load a local image from the app folder and inline it as base64 for the hero background
+    try:
+        import base64
+        img_path = os.path.join(os.path.dirname(__file__), "Analyse financière dans un monde futuriste.png")
+        with open(img_path, 'rb') as _f:
+            _b = _f.read()
+        _b64 = base64.b64encode(_b).decode('ascii')
+        bg_url = f"data:image/png;base64,{_b64}"
+    except Exception:
+        bg_url = "https://images.unsplash.com/photo-1559526324-593bc073d938?auto=format&fit=crop&w=1650&q=80"
+
+    import textwrap
+
+    hero_html = textwrap.dedent(f"""
+    <style>
+    .hero{{background-position:center;background-size:cover;background-repeat:no-repeat;display:flex;align-items:center;position:relative;overflow:hidden;left:50%;right:50%;margin-left:-50vw;margin-right:-50vw;width:100vw;height:100vh}}
+    .hero-inner{{position:relative;z-index:2;max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:18px;padding:30px;border-radius:12px;backdrop-filter:blur(4px);background:linear-gradient(180deg, rgba(0,0,0,0.45), rgba(0,0,0,0.32));color:#e6eef8}}
+    .hero-title{{display:flex;align-items:center;gap:20px}}
+    .logo{{background:linear-gradient(135deg,#3A8BFF,#06B6D4);color:white;width:72px;height:72px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:28px}}
+    .app-name{{font-size:32px;font-weight:800;color:#fff}}
+    .mini-slogan{{font-size:13px;color:#cbd5e1;margin-top:4px;font-weight:600}}
+    .app-tag{{font-size:14px;color:#cbd5e1;margin-top:6px}}
+    .features{{display:flex;gap:12px;margin-top:14px}}
+    .feature{{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.03);padding:8px 12px;border-radius:10px;font-weight:600;color:#e6eef8}}
+    .f-icon{{background:linear-gradient(90deg,#3A8BFF,#7C3AED);width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800}}
+    .team{{margin-top:6px}}
+    .members{{display:flex;gap:16px;flex-wrap:wrap}}
+    .member{{display:flex;flex-direction:column;align-items:center;width:110px}}
+    .avatar{{background:linear-gradient(135deg,#3A8BFF,#7C3AED);width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:18px}}
+    .name{{font-size:13px;color:#e6eef8;margin-top:8px;text-align:center}}
+    </style>
+
+    <section class='hero' style="background-image:url('{bg_url}');">
+        <div class='hero-inner animate-up'>
+            <div class='hero-top'>
+                <div class='hero-left'>
+                    <div class='hero-title'>
+                        <span class='logo'>T</span>
+                        <div>
+                            <div style='display:flex;align-items:center;gap:12px'>
+                                <div class='app-name'>Traid_analyzer</div>
+                                <div class='schools'>
+                                    <div style='font-size:14px;color:var(--muted);font-weight:700'>ESIGELEC</div>
+                                    <div class='badge'>Projet d'analyse financière</div>
+                                </div>
+                            </div>
+                            <div class='mini-slogan'>Décisions éclairées par l'IA — Analyse financière instantanée.</div>
+                            <div class='app-tag'>L’outil développé par l’équipe ESIGELEC pour analyser les marchés et prendre des décisions plus informées.</div>
+                        </div>
+                    </div>
+
+                    <div class='features' aria-hidden='true'>
+                        <div class='feature'><div class='f-icon'>📈</div><div>Analyse technique automatisée</div></div>
+                        <div class='feature'><div class='f-icon'>⚖️</div><div>Analyse fondamentale instantanée</div></div>
+                        <div class='feature'><div class='f-icon'>💡</div><div>Recommandations d'achat/vente</div></div>
+                    </div>
+
+                    <div style='margin-top:14px'>
+                        <strong style='font-size:15px'>Bienvenue — Entrer dans l'analyse</strong>
+                        <div style='color:var(--muted);margin-top:6px'>Découvrez des signaux clairs, un scoring d'indicateurs et des conseils actionnables.</div>
+                    </div>
+                </div>
+                <div class='hero-illustration' style="background-image:url('{bg_url}');"></div>
+            </div>
+
+            <div class='team' style='margin-top:18px;'>
+                <strong>Équipe :</strong>
+                <div class='members'>
+                    <div class='member'><div class='avatar'>BD</div><div class='name'>Boubacar Dabo </div></div>
+                    <div class='member'><div class='avatar'>MA</div><div class='name'>Malo </div></div>
+                    <div class='member'><div class='avatar'>BA</div><div class='name'>Baptiste </div></div>
+                    <div class='member'><div class='avatar'>KE</div><div class='name'>Kevyn </div></div>
+                    <div class='member'><div class='avatar'>YX</div><div class='name'>YuXuan </div></div>
+                </div>
+            </div>
+        </div>
+    </section>
+    """)
+    # Remove any leading newlines/spaces that can make Markdown treat this block as a code fence
+    hero_html = hero_html.lstrip()
+    # Also strip common leading indentation on every line to avoid accidental code-block formatting
+    hero_html = "\n".join([ln.lstrip() for ln in hero_html.splitlines()])
+
+    # Render the hero using a Streamlit component (iframe) so the HTML/CSS isn't escaped
+    # and the visual full-bleed styling is preserved.
+    try:
+        components.html(hero_html, height=760, scrolling=True)
+    except Exception:
+        # Fallback to markdown if components isn't available for some reason
+        st.markdown(hero_html, unsafe_allow_html=True)
+
+    
+
+    cols = st.columns([1, 0.5, 1])
+    with cols[1]:
+        if st.button("Accéder à l'analyse", key='enter_app'):
+            st.session_state.show_landing = False
+            # Attempt to rerun the Streamlit script. Use st.experimental_rerun when available,
+            # otherwise raise the internal RerunException as a fallback for older/newer Streamlit builds.
+            try:
+                # Prefer raising the internal RerunException to force a rerun in many Streamlit versions.
+                from streamlit.runtime.scriptrunner.script_runner import RerunException
+                raise RerunException()
+            except Exception:
+                # Fallback: try the public API if available
+                try:
+                    st.experimental_rerun()
+                except Exception:
+                    # Last resort: no-op; UI will update on next interaction
+                    pass
+
+    st.stop()
 
 with st.sidebar:
     st.header('Paramètres')
@@ -588,48 +686,6 @@ if run_analysis:
                         else:
                             display = str(val)
                     rows.append({'Champ': label, 'Valeur': display})
-                st.table(rows)
-            else:
-                st.write('Aucune donnée fondamentale trouvée')
-
-        # News feed expander (adds debug info: RSS URL + item count)
-        with st.expander('Flux d\'actualités (par entreprise)', expanded=False):
-            # Show news for each of the 5 companies we work with
-            # companies list is defined earlier; we will use the displayed name (choice) mapping
-            cached_fetch = st.cache_data(fetch_feed)
-            for comp_name, comp_sym in companies:
-                st.markdown(f"**{comp_name}**")
-                # Use Google News RSS search for the company name (French locale)
-                q = urllib.parse.quote_plus(comp_name + " site:fr")
-                gurl = f"https://news.google.com/rss/search?q={q}&hl=fr&gl=FR&ceid=FR:fr"
-                try:
-                    items = cached_fetch(gurl, max_items=5)
-                    # Debug: show the exact RSS URL and how many items returned
-                    st.markdown(f"<div style='font-size:12px;color:#6b7280;margin-bottom:6px'>URL: {gurl} — Articles récupérés: {len(items)}</div>", unsafe_allow_html=True)
-                except Exception as e:
-                    items = []
-                    st.markdown(f"<div style='font-size:12px;color:#d23a2a;margin-bottom:6px'>Erreur chargement flux: {e}</div>", unsafe_allow_html=True)
-                if not items:
-                    st.markdown("- Aucune actualité disponible pour ce nom")
-                for it in items:
-                    title = it.get('title', 'Sans titre')
-                    link = it.get('link')
-                    pub = it.get('published')
-                    summary = it.get('summary', '')
-                    if len(summary) > 200:
-                        summary = summary[:200].rsplit(' ', 1)[0] + '...'
-                    if link:
-                        if pub:
-                            st.markdown(f"- [{title}]({link})  <span style='color:#6b7280;font-size:12px'>— {pub}</span>", unsafe_allow_html=True)
-                        else:
-                            st.markdown(f"- [{title}]({link})")
-                    else:
-                        if pub:
-                            st.markdown(f"- {title}  <span style='color:#6b7280;font-size:12px'>— {pub}</span>", unsafe_allow_html=True)
-                        else:
-                            st.markdown(f"- {title}")
-                    if summary:
-                        st.markdown(f"<div style='color:#374151;font-size:13px;margin-left:12px'>{summary}</div>", unsafe_allow_html=True)
 
     with col2:
         st.subheader(f'Graphique {symbol}')
