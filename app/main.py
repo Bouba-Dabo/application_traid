@@ -136,13 +136,33 @@ def _score_color(score: int) -> str:
     }
     return cmap.get(s, '#64748b')
 
+
+def _score_label(score: int) -> str:
+    """Return a short human-readable label for a score 0..5.
+
+    Keeps labels concise and in French to match the rest of the UI.
+    """
+    try:
+        s = _clamp_score(score)
+    except Exception:
+        s = 0
+    labels = {
+        0: 'N/A',
+        1: 'Très faible',
+        2: 'Faible',
+        3: 'Moyen',
+        4: 'Bon',
+        5: 'Excellent'
+    }
+    return labels.get(s, 'N/A')
+
 def render_score_card(col, label: str, score: int):
     color = _score_color(score)
     text = _score_label(score)
     html = f"""
     <div class='score-card' style='padding:8px;border-radius:10px;margin-bottom:8px'>
       <div style='display:flex;justify-content:space-between;align-items:center'>
-        <div style='font-size:13px;color:#6b7280'>{label}</div>
+                <div style='font-size:13px;color:var(--accent);font-weight:700'>{label}</div>
         <div style='background:{color};color:#fff;padding:6px 10px;border-radius:14px;font-weight:700'>{score}/5 — {text}</div>
       </div>
     </div>
