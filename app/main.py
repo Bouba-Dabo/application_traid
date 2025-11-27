@@ -1,4 +1,11 @@
 import streamlit as st
+import os
+import sys
+# Ensure repository root is on sys.path so `import app.*` works in hosted environments
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
 from app.finance import fetch_data, compute_indicators, fetch_fundamentals, resolve_name_to_ticker
 from app.news import fetch_feed
 import urllib.parse
