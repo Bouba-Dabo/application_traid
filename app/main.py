@@ -307,7 +307,7 @@ st.markdown(
         .header {font-weight:800; color:#0f1724}
         .card{background:var(--card); padding:14px; border-radius:10px; box-shadow:0 6px 28px rgba(12,18,30,0.06); border:1px solid rgba(12,18,30,0.04)}
         .score-card{background:var(--card); padding:8px;border-radius:10px;margin-bottom:6px;border:1px solid rgba(0,0,0,0.03)}
-        .header-sub{color:#0f1724;font-weight:700}
+        .header-sub{color:var(--accent);font-weight:700}
         select, input, textarea, button {background: #fff !important; color: #0f1724 !important; border:1px solid rgba(0,0,0,0.06) !important}
 
         /* Hero styles (polished) */
@@ -316,17 +316,17 @@ st.markdown(
         .hero-inner{position:relative; z-index:2; max-width:1100px; margin:0 auto; display:flex; flex-direction:column; gap:18px; padding:30px; border-radius:12px; backdrop-filter: blur(6px); background: linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,255,255,0.80));}
         .hero-title{display:flex;align-items:center;gap:20px}
         .logo{background:linear-gradient(135deg,var(--accent),var(--accent-2)); color:white; width:88px;height:88px;border-radius:16px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:36px;box-shadow:0 10px 30px rgba(6,30,60,0.08)}
-        .app-name{font-size:36px;font-weight:800;color:transparent;background:linear-gradient(90deg,#3A8BFF,#06B6D4);-webkit-background-clip:text;background-clip:text;letter-spacing:-0.5px}
+        .app-name{font-size:36px;font-weight:800;color:transparent;background:linear-gradient(90deg,var(--accent),var(--accent-2));-webkit-background-clip:text;background-clip:text;letter-spacing:-0.5px}
         .mini-slogan{font-size:12px;color:#64748b;margin-top:4px;font-weight:600}
         .app-tag{font-size:15px;color:#334155;margin-top:6px;font-weight:600}
         .hero-desc{color:#334155;margin:0;max-width:980px;font-size:15px;line-height:1.6}
         .schools{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:14px}
-        .badge{background:linear-gradient(90deg,#eef2ff,#f0f9ff);padding:6px 10px;border-radius:999px;color:#1e40af;margin-left:6px;font-weight:700;border:1px solid rgba(30,64,175,0.08)}
+        .badge{background:linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));padding:6px 10px;border-radius:999px;color:var(--accent);margin-left:6px;font-weight:700;border:1px solid rgba(0,0,0,0.04)}
 
         .team{margin-top:6px}
         .members{display:flex;gap:16px;flex-wrap:wrap}
         .member{display:flex;flex-direction:column;align-items:center;width:90px}
-        .avatar{background:linear-gradient(135deg,#3A8BFF,#7C3AED);width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:18px;box-shadow:0 8px 18px rgba(3,12,30,0.12);transition:transform .18s ease}
+        .avatar{background:linear-gradient(135deg,var(--accent),var(--accent-2));width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:18px;box-shadow:0 8px 18px rgba(3,12,30,0.12);transition:transform .18s ease}
         .avatar:hover{transform:translateY(-4px)}
         .name{font-size:13px;color:#0f1724;margin-top:8px;text-align:center}
 
@@ -354,8 +354,8 @@ st.markdown(
 
         /* Features */
         .features{display:flex;gap:12px;margin-top:14px}
-        .feature{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.9);padding:8px 12px;border-radius:10px;box-shadow:0 6px 18px rgba(3,12,30,0.04);font-weight:600;color:#0f1724}
-        .f-icon{background:linear-gradient(90deg,#3A8BFF,#7C3AED);width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800}
+        .feature{display:flex;align-items:center;gap:10px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:8px 12px;border-radius:10px;box-shadow:0 6px 18px rgba(3,12,30,0.04);font-weight:600;color:#0f1724;border:1px solid rgba(0,0,0,0.03)}
+        .f-icon{background:linear-gradient(90deg,var(--accent),var(--accent-2));width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800}
 
         /* Illustration on the right */
         .hero-top{display:flex;gap:22px;align-items:stretch}
