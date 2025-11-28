@@ -12,6 +12,7 @@ import pandas as pd
 # ruff: noqa: E501,E402
 import math
 import numpy as np
+import hashlib
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit.components.v1 as components
@@ -912,37 +913,44 @@ if candidate and candidate in available_names:
 else:
     # fall back to session state or default
     choice = st.session_state.get("company_choice", default_choice)
+        # Detect a change in selected company and mark that we need to fetch fresh data.
+        # We intentionally avoid forcing an immediate rerun here to prevent race
+        # conditions; instead we set `needs_fetch` and clear caches just before
+        # the next actual fetch call.
+prev_choice = st.session_state.get("company_choice")
 st.session_state["company_choice"] = choice
+if prev_choice is None:
+    # first load: mark as needing fetch
+    st.session_state.setdefault("needs_fetch", True)
+elif prev_choice != choice:
+    # user switched company: request fresh fetch on next analysis run
+    st.session_state["needs_fetch"] = True
 symbol = dict(companies)[choice]
 
-# Render a small HTML dropdown (inside an iframe) so each option can be styled with its brand color.
+# Use a native Streamlit selectbox for reliable, synchronous selection handling.
 try:
-    dropdown_items = []
-    for cname, _ in companies:
-        cmeta = COMPANY_META.get(cname, {})
-        ccolor = cmeta.get("color", "#64748b")
-        # link will navigate the top window to set the query param and cause a rerun
-        dropdown_items.append(
-            f"<a class='item' href='?company={urllib.parse.quote(cname)}' target='_top' style='display:block;padding:8px 12px;color:{ccolor};text-decoration:none;font-weight:700;border-radius:6px;margin-bottom:6px'>{cname}</a>"
-        )
-    items_html = "\n".join(dropdown_items)
-    dropdown_html = f"""
-    <style>
-    .company-dropdown {{ font-family:inherit; }}
-    .company-main {{ display:inline-block;padding:10px 14px;border-radius:10px;border:1px solid rgba(0,0,0,0.06);cursor:pointer;background:linear-gradient(90deg,{COMPANY_META.get(choice,{{}}).get('color','#3A8BFF')}, { _hex_lighter(COMPANY_META.get(choice,{{}}).get('color','#3A8BFF'), 0.45) }); color:#fff;font-weight:700 }}
-    .company-list {{ margin-top:8px; }}
-    .company-list .item:hover {{ background: rgba(0,0,0,0.04); }}
-    </style>
-    <div class='company-dropdown'>
-      <div class='company-main'>{choice} ▾</div>
-      <div class='company-list'>
-        {items_html}
-      </div>
-    </div>
-    """
-    components.html(dropdown_html, height=120, scrolling=False)
+    sel_index = available_names.index(choice) if choice in available_names else 0
+    new_choice = st.selectbox("Choisir une entreprise française", available_names, index=sel_index, key="company_select")
+    # If the user changed the selection, update query params and mark for refresh.
+    if new_choice != choice:
+        choice = new_choice
+        try:
+            st.experimental_set_query_params(company=choice)
+        except Exception:
+            pass
+        st.session_state["company_choice"] = choice
+        st.session_state["needs_fetch"] = True
+        # If auto-analyze is enabled, trigger an immediate rerun to start analysis.
+        try:
+            if st.session_state.get("auto_analyze", False):
+                try:
+                    st.experimental_rerun()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 except Exception:
-    # fallback to native selectbox if components/html fails
+    # Fallback: use the native selectbox without query param handling
     choice = st.selectbox("Choisir une entreprise française", available_names)
     st.session_state["company_choice"] = choice
 
@@ -977,7 +985,9 @@ auto_analyze = st.checkbox(
     key="auto_analyze",
     label_visibility="hidden",
 )
-run_analysis = auto_analyze or st.button("Analyser")
+# Run analysis if auto_analyze enabled, user clicked the button,
+# or a company change requested a fresh fetch (needs_fetch).
+run_analysis = auto_analyze or st.button("Analyser") or st.session_state.get("needs_fetch", False)
 
 if not run_analysis:
     st.info(
@@ -989,6 +999,19 @@ if run_analysis:
         "Analyse en cours — récupération des données et calcul des indicateurs..."
     ):
         try:
+            # Small runtime instrumentation to help diagnose stale results.
+            try:
+                last_loaded = st.session_state.get("last_loaded_company")
+                debug_needs = st.session_state.get("needs_fetch", False)
+                st.info(
+                    f"DEBUG FETCH: choice={choice} symbol={symbol} needs_fetch={debug_needs} last_loaded={last_loaded}"
+                )
+                # If the currently selected choice differs from last loaded company,
+                # ensure we request a fresh fetch so cached data isn't reused.
+                if last_loaded is not None and last_loaded != choice:
+                    st.session_state["needs_fetch"] = True
+            except Exception:
+                pass
             if not symbol:
                 st.error("Aucun symbole résolu à analyser")
                 st.stop()
@@ -998,7 +1021,42 @@ if run_analysis:
             # If the initial fetch returns no data, retry with a shorter period
             # and inform the user.
             try:
+                # If a company switch occurred previously, clear cached data now
+                # so the upcoming fetch is guaranteed to return fresh values.
+                if st.session_state.get("needs_fetch", False):
+                    try:
+                        fetch_data.clear()
+                    except Exception:
+                        pass
+                    try:
+                        compute_indicators.clear()
+                    except Exception:
+                        pass
+                    try:
+                        fetch_fundamentals.clear()
+                    except Exception:
+                        pass
+                    try:
+                        get_history.clear()
+                    except Exception:
+                        pass
+                    # reset the flag
+                    st.session_state["needs_fetch"] = False
+
                 df = fetch_data(symbol, period=period, interval=interval)
+                try:
+                    # Record fetch time and brief summary so we can see if data changed.
+                    import datetime
+
+                    st.session_state["last_fetch_time"] = datetime.datetime.utcnow().isoformat()
+                    try:
+                        st.info(
+                            f"FETCHED: rows={len(df)} last_index={getattr(df.index, 'max', lambda: None)()}"
+                        )
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
             except Exception as e_raw:
                 # If the backend raised a descriptive error, keep it for later
                 df = None
@@ -1028,6 +1086,12 @@ if run_analysis:
             if df is None or (hasattr(df, "empty") and df.empty):
                 st.error("Erreur récupération: Aucune donnée renvoyée pour ce symbole/intervalle.")
                 st.stop()
+            # Record that we've loaded data for this company so subsequent
+            # UI interactions don't show stale data.
+            try:
+                st.session_state["last_loaded_company"] = choice
+            except Exception:
+                pass
         except Exception as e:
             st.error(f"Erreur récupération: {e}")
             st.stop()
@@ -1589,6 +1653,79 @@ if run_analysis:
                     )
                 except Exception:
                     pass
+
+        # Remove duplicated traces (e.g., accidental double plotting of the same series)
+        try:
+            seen = set()
+            new_traces = []
+            for tr in fig.data:
+                key = (getattr(tr, "name", None), getattr(tr, "type", None))
+                if key in seen:
+                    continue
+                seen.add(key)
+                new_traces.append(tr)
+            # reassign cleaned traces
+            fig.data = tuple(new_traces)
+        except Exception:
+            pass
+
+        # Specific safeguard: if multiple 'Cumulative' traces remain (sometimes
+        # generated as slightly different scatter traces), remove any later
+        # occurrences and keep only the first one so the plot shows a single
+        # cumulative-return line.
+        try:
+            filtered = []
+            seen_cum = False
+            for tr in fig.data:
+                name = (getattr(tr, "name", "") or "").lower()
+                if "cumul" in name or "cumulative" in name or "return" in name and "cum" in name:
+                    if seen_cum:
+                        # skip this duplicate cumulative trace
+                        continue
+                    seen_cum = True
+                filtered.append(tr)
+            fig.data = tuple(filtered)
+        except Exception:
+            pass
+
+        # Final robust deduplication: compute a lightweight signature for each
+        # trace (type, name, length, SHA256 of y-values) and drop later traces
+        # with identical signatures. This handles the case where two traces are
+        # numerically identical but were created separately.
+        try:
+            sigs = set()
+            unique_traces = []
+            for tr in fig.data:
+                try:
+                    ttype = getattr(tr, "type", "")
+                    tname = (getattr(tr, "name", "") or "")
+                    y = getattr(tr, "y", None)
+                    if y is None:
+                        y_bytes = b""
+                        length = 0
+                    else:
+                        y_arr = np.asarray(y)
+                        length = y_arr.size
+                        # tobytes on a float64 representation for stable hashing
+                        try:
+                            y_bytes = y_arr.astype(np.float64).tobytes()
+                        except Exception:
+                            # Fallback to repr if conversion fails
+                            y_bytes = repr(y_arr).encode("utf-8")
+                    h = hashlib.sha256(y_bytes).hexdigest()
+                    sig = (ttype, tname, length, h)
+                except Exception:
+                    sig = (getattr(tr, "type", ""), getattr(tr, "name", ""), 0, "")
+
+                if sig in sigs:
+                    # duplicate data trace: skip
+                    continue
+                sigs.add(sig)
+                unique_traces.append(tr)
+
+            fig.data = tuple(unique_traces)
+        except Exception:
+            pass
 
         # Layout & interactivity improvements:
         fig.update_layout(
