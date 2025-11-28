@@ -14,13 +14,56 @@ logger = logging.getLogger(__name__)
 # #############################################################################
 
 
-def fetch_data(symbol: str, period: str = "60d", interval: str = "1d") -> pd.DataFrame:
-    """Fetches historical data for a given symbol from Yahoo Finance."""
+def fetch_data(
+    symbol: str, period: str = "60d", interval: str = "1d", auto_adjust: bool = True
+) -> pd.DataFrame:
+    """Fetches historical data for a given symbol from Yahoo Finance.
+
+    Notes on timezone/alignment:
+    - Yahoo returns timezone-aware indices for intraday intervals. Different viewers
+      may present times in the exchange local timezone (e.g. Europe/Paris for .PA
+      tickers) which can look like a small shift when compared to the website.
+    - To reduce visual offsets in the UI we sort the index and, when possible,
+      convert intraday timestamps to the exchange-local timezone and drop tz
+      information so plots and tables align with local date boundaries.
+
+    Parameters:
+    - auto_adjust: keep True (default) to adjust OHLC for splits/dividends (same
+      behaviour as before). If you prefer raw OHLC, call with auto_adjust=False.
+    """
     t = yf.Ticker(symbol)
-    df = t.history(period=period, interval=interval, auto_adjust=True)
-    if df.empty:
+    df = t.history(period=period, interval=interval, auto_adjust=auto_adjust)
+    if df is None or df.empty:
         raise ValueError(f"No data for symbol {symbol}")
+
+    # Drop rows with missing required fields and sort by timestamp to avoid
+    # accidental ordering issues which can make visuals look shifted.
     df = df.dropna()
+    try:
+        df = df.sort_index()
+    except Exception:
+        pass
+
+    # If the index is timezone-aware (common for intraday), try to convert it
+    # to a sensible local timezone for French tickers and then remove tz info so
+    # downstream plotting uses naive datetimes that align with local dates.
+    try:
+        idx = df.index
+        if hasattr(idx, "tz") and idx.tz is not None:
+            # If this is a Paris-listed ticker ('.PA'), prefer Europe/Paris timezone.
+            target_tz = "Europe/Paris" if symbol.upper().endswith(".PA") else "UTC"
+            try:
+                df.index = df.index.tz_convert(target_tz).tz_localize(None)
+            except Exception:
+                # If conversion fails, drop tz info preserving the UTC instants.
+                try:
+                    df.index = df.index.tz_convert("UTC").tz_localize(None)
+                except Exception:
+                    df.index = df.index.tz_localize(None)
+    except Exception:
+        # Non-fatal: if anything goes wrong, return the data as-is
+        pass
+
     return df
 
 

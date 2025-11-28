@@ -1,0 +1,168 @@
+diff --git a/app/main.py b/app/main.py
+index 41ba330..c1d5808 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -12,6 +12,7 @@ import pandas as pd
+ # ruff: noqa: E501,E402
+ import math
+ import numpy as np
++import hashlib
+ import plotly.graph_objects as go
+ from plotly.subplots import make_subplots
+ import streamlit.components.v1 as components
+@@ -1590,6 +1591,114 @@ if run_analysis:
+                 except Exception:
+                     pass
+ 
++        # Remove duplicated traces (e.g., accidental double plotting of the same series)
++        try:
++            seen = set()
++            new_traces = []
++            for tr in fig.data:
++                key = (getattr(tr, "name", None), getattr(tr, "type", None))
++                if key in seen:
++                    continue
++                seen.add(key)
++                new_traces.append(tr)
++            # reassign cleaned traces
++            fig.data = tuple(new_traces)
++        except Exception:
++            pass
++
++        # Specific safeguard: if multiple 'Cumulative' traces remain (sometimes
++        # generated as slightly different scatter traces), remove any later
++        # occurrences and keep only the first one so the plot shows a single
++        # cumulative-return line.
++        try:
++            filtered = []
++            seen_cum = False
++            for tr in fig.data:
++                name = (getattr(tr, "name", "") or "").lower()
++                if "cumul" in name or "cumulative" in name or "return" in name and "cum" in name:
++                    if seen_cum:
++                        # skip this duplicate cumulative trace
++                        continue
++                    seen_cum = True
++                filtered.append(tr)
++            fig.data = tuple(filtered)
++        except Exception:
++            pass
++
++        # Final robust deduplication: compute a lightweight signature for each
++        # trace (type, name, length, SHA256 of y-values) and drop later traces
++        # with identical signatures. This handles the case where two traces are
++        # numerically identical but were created separately.
++        try:
++            sigs = set()
++            unique_traces = []
++            for tr in fig.data:
++                try:
++                    ttype = getattr(tr, "type", "")
++                    tname = (getattr(tr, "name", "") or "")
++                    y = getattr(tr, "y", None)
++                    if y is None:
++                        y_bytes = b""
++                        length = 0
++                    else:
++                        y_arr = np.asarray(y)
++                        length = y_arr.size
++                        # tobytes on a float64 representation for stable hashing
++                        try:
++                            y_bytes = y_arr.astype(np.float64).tobytes()
++                        except Exception:
++                            # Fallback to repr if conversion fails
++                            y_bytes = repr(y_arr).encode("utf-8")
++                    h = hashlib.sha256(y_bytes).hexdigest()
++                    sig = (ttype, tname, length, h)
++                except Exception:
++                    sig = (getattr(tr, "type", ""), getattr(tr, "name", ""), 0, "")
++
++                if sig in sigs:
++                    # duplicate data trace: skip
++                    continue
++                sigs.add(sig)
++                unique_traces.append(tr)
++
++            fig.data = tuple(unique_traces)
++        except Exception:
++            pass
++
++        # Ensure exactly one cumulative-return trace: remove any existing traces
++        # whose name suggests they are cumulative returns, then append a single
++        # canonical trace constructed from our (possibly downsampled) data.
++        try:
++            # remove traces with names that look like cumulative returns
++            cleaned = []
++            for tr in fig.data:
++                name = (getattr(tr, "name", "") or "").lower()
++                if "cumul" in name or "cumulative" in name or ("return" in name and "cum" in name):
++                    continue
++                cleaned.append(tr)
++            fig.data = tuple(cleaned)
++
++            # Build a single canonical cumulative return trace from df_plot_ds
++            try:
++                dp = df_plot_ds if "df_plot_ds" in locals() else df_plot
++                if "returns_cum" in dp.columns:
++                    single = go.Scatter(
++                        x=dp.index,
++                        y=dp["returns_cum"] * 100.0,
++                        mode="lines",
++                        name="Cumulative Return %",
++                        line={"color": "#444444", "width": 2},
++                    )
++                    # append to the figure and place on row 3
++                    # Note: Plotly traces don't have row/col attributes when appended,
++                    # so we re-add by creating a new figure data tuple where we place
++                    # the trace at the end. The subplot assignment uses 'xaxis3' mapping
++                    single.update(xaxis="x3", yaxis="y3")
++                    fig.add_trace(single, row=3, col=1)
++            except Exception:
++                pass
++        except Exception:
++            pass
++
+         # Layout & interactivity improvements:
+         fig.update_layout(
+             margin={"l": 20, "r": 20, "t": 30, "b": 20},
+@@ -1665,6 +1774,40 @@ if run_analysis:
+             "modeBarButtonsToAdd": ["toImage"],
+         }
+ 
++        # DEBUG: dump trace metadata so we can diagnose duplicate traces visually
++        # This is temporary and will be removed after debugging.
++        try:
++            trace_info = []
++            for tr in fig.data:
++                try:
++                    tname = getattr(tr, "name", None)
++                    ttype = getattr(tr, "type", None)
++                    xaxis = getattr(tr, "xaxis", None)
++                    yaxis = getattr(tr, "yaxis", None)
++                    y = getattr(tr, "y", None)
++                    ylen = len(y) if y is not None else 0
++                    trace_info.append({
++                        "name": tname,
++                        "type": ttype,
++                        "xaxis": xaxis,
++                        "yaxis": yaxis,
++                        "y_len": ylen,
++                    })
++                except Exception:
++                    trace_info.append({"name": getattr(tr, "name", None), "type": getattr(tr, "type", None)})
++            # Show in-app for ease of capture; also print to console for logs.
++            try:
++                st.markdown("**DEBUG: Figure traces**")
++                st.json(trace_info)
++            except Exception:
++                st.write("DEBUG: ", trace_info)
++            try:
++                print("FIG_TRACES:", trace_info)
++            except Exception:
++                pass
++        except Exception:
++            pass
++
+         # Use new API: width='stretch' replaces use_container_width=True (deprecated)
+         try:
+             st.plotly_chart(fig, width="stretch", config=plotly_config)
