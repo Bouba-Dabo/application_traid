@@ -938,15 +938,20 @@ try:
             st.experimental_set_query_params(company=choice)
         except Exception:
             pass
+        # Update session state and force a fresh fetch immediately.
         st.session_state["company_choice"] = choice
         st.session_state["needs_fetch"] = True
-        # If auto-analyze is enabled, trigger an immediate rerun to start analysis.
+        # Clear last_loaded to guarantee cache-clear logic runs.
         try:
-            if st.session_state.get("auto_analyze", False):
-                try:
-                    st.experimental_rerun()
-                except Exception:
-                    pass
+            st.session_state["last_loaded_company"] = None
+        except Exception:
+            pass
+        # Force an immediate rerun so the app fetches and displays fresh data.
+        try:
+            try:
+                st.experimental_rerun()
+            except Exception:
+                pass
         except Exception:
             pass
 except Exception:
@@ -1002,10 +1007,6 @@ if run_analysis:
             # Small runtime instrumentation to help diagnose stale results.
             try:
                 last_loaded = st.session_state.get("last_loaded_company")
-                debug_needs = st.session_state.get("needs_fetch", False)
-                st.info(
-                    f"DEBUG FETCH: choice={choice} symbol={symbol} needs_fetch={debug_needs} last_loaded={last_loaded}"
-                )
                 # If the currently selected choice differs from last loaded company,
                 # ensure we request a fresh fetch so cached data isn't reused.
                 if last_loaded is not None and last_loaded != choice:
@@ -1045,16 +1046,12 @@ if run_analysis:
 
                 df = fetch_data(symbol, period=period, interval=interval)
                 try:
-                    # Record fetch time and brief summary so we can see if data changed.
+                    # Record fetch time so we can see when the last successful
+                    # retrieval occurred. Keep this guarded to avoid crashing
+                    # the UI if datetime or session_state fail for any reason.
                     import datetime
 
                     st.session_state["last_fetch_time"] = datetime.datetime.utcnow().isoformat()
-                    try:
-                        st.info(
-                            f"FETCHED: rows={len(df)} last_index={getattr(df.index, 'max', lambda: None)()}"
-                        )
-                    except Exception:
-                        pass
                 except Exception:
                     pass
             except Exception as e_raw:
